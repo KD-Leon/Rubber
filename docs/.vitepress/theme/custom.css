@@ -1,0 +1,556 @@
+/* =================================================================
+   Vault Operator Documentation -- Custom Theme
+   Extends VitePress default theme with brand identity and polish.
+   ================================================================= */
+
+/* Home page: the landing hero + EditorDemo provide their own spacing,
+   so drop VitePress' large bottom margin under the home content. */
+.VPHome {
+  margin-bottom: 0;
+}
+
+/* ── Brand Colors & Design Tokens ─────────────────────────────── */
+
+:root {
+  /* Font stacks */
+  --vp-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --vp-font-family-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Light mode: the plugin's brand ramp (pink to violet). Links and fills
+     use the mid and terminal violets for contrast on white; the full ramp
+     appears only on brand surfaces (hero name, primary buttons, the mark). */
+  --vp-c-brand-1: #a24bd8;
+  --vp-c-brand-2: #8a53e4;
+  --vp-c-brand-3: #7b5cf0;
+  --vp-c-brand-soft: rgba(162, 75, 216, 0.14);
+
+  /* Hero gradients and effects: the exact brand ramp from the plugin mark */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #e6547f 0%, #a24bd8 55%, #7b5cf0 100%);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(230, 84, 127, 0.22) 0%, rgba(123, 92, 240, 0.14) 100%);
+  --vp-home-hero-image-filter: blur(56px);
+
+  /* ── Agent design tokens (brand-scoped, only what VitePress lacks) ── */
+
+  /* Raw brand RGB triplets, used for alpha-modulated tints */
+  --agent-brand-rgb: 162, 75, 216;
+  --agent-brand-deep-rgb: 123, 92, 240;
+
+  /* Brand surfaces / tints used in shadows + hover backgrounds */
+  --agent-brand-tint-weak: rgba(var(--agent-brand-rgb), 0.06);
+  --agent-brand-tint: rgba(var(--agent-brand-rgb), 0.08);
+  --agent-brand-tint-strong: rgba(var(--agent-brand-rgb), 0.14);
+  --agent-brand-glow: rgba(var(--agent-brand-rgb), 0.25);
+
+  /* Spacing scale */
+  --agent-space-1: 0.25rem;
+  --agent-space-2: 0.5rem;
+  --agent-space-3: 0.75rem;
+  --agent-space-4: 1rem;
+  --agent-space-6: 1.5rem;
+  --agent-space-8: 2rem;
+
+  /* Radius scale. md/lg mirror the plugin's surface radii (--vo-radius-md 12,
+     --vo-radius-lg 15); sm stays small for inline elements (code, buttons). */
+  --agent-radius-sm: 6px;
+  --agent-radius-md: 12px;
+  --agent-radius-lg: 15px;
+
+  /* Elevation / shadow scale */
+  --agent-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --agent-shadow-md: 0 4px 12px var(--agent-brand-glow);
+  --agent-shadow-card: 0 4px 16px var(--agent-brand-tint);
+
+  /* Motion */
+  --agent-transition-fast: 0.15s ease;
+  --agent-transition-base: 0.2s ease;
+  --agent-transition-slow: 0.3s ease;
+
+  /* Link affordance */
+  --agent-link-underline-offset: 0.18em;
+  --agent-link-underline-thickness: 1px;
+
+  /* Layout */
+  --agent-content-max-width: 720px;
+  --agent-mobile-breakpoint: 720px;
+}
+
+/* Dark mode: lighter ramp violets for readability on dark backgrounds */
+.dark {
+  --vp-c-brand-1: #c084ec;
+  --vp-c-brand-2: #d3a6f2;
+  --vp-c-brand-3: #a24bd8;
+  --vp-c-brand-soft: rgba(192, 132, 236, 0.16);
+
+  /* Dark-mode brand uses a lighter violet, so retune the tint base */
+  --agent-brand-rgb: 192, 132, 236;
+  --agent-brand-deep-rgb: 162, 75, 216;
+
+  /* Shadows on dark surfaces need more lift to stay visible */
+  --agent-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --agent-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --agent-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Hero Section ──────────────────────────────────────────────── */
+
+/* Radial glow behind hero like original */
+.VPHero {
+  background: radial-gradient(ellipse 80% 50% at 50% -10%, var(--agent-brand-glow), transparent);
+}
+
+/* Force single-column hero (no image), centered */
+.VPHero .container {
+  max-width: var(--agent-content-max-width);
+  margin: 0 auto;
+}
+
+.VPHero .main {
+  max-width: var(--agent-content-max-width);
+  text-align: center;
+  margin: 0 auto;
+}
+
+/* Specificity bump (.VPHero.VPHero) beats VitePress default .VPHero .text
+   so we no longer need !important here. */
+.VPHero.VPHero .text {
+  font-size: clamp(2.2rem, 5vw, 3.2rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+  white-space: pre-line;
+}
+
+.VPHero.VPHero .tagline {
+  font-size: 1rem;
+  line-height: 1.7;
+  max-width: 640px;
+  color: var(--vp-c-text-2);
+  margin: 0 auto;
+  white-space: pre-line;
+}
+
+.VPHero .actions {
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .VPHero.VPHero .text {
+    font-size: 1.8rem;
+  }
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+
+/* Primary buttons carry the brand ramp -- same gradient in dark mode, the
+   way an app icon keeps its colors on every theme. */
+.VPButton.brand {
+  background: linear-gradient(145deg, #e6547f 0%, #a24bd8 55%, #7b5cf0 100%);
+  border-color: transparent;
+  color: white;
+  transition: all var(--agent-transition-base);
+}
+
+.VPButton.brand:hover {
+  background: linear-gradient(145deg, #e6547f 0%, #a24bd8 55%, #7b5cf0 100%);
+  border-color: transparent;
+  filter: brightness(0.93);
+  transform: translateY(-1px);
+  box-shadow: var(--agent-shadow-md);
+}
+
+.VPButton.alt {
+  transition: all var(--agent-transition-base);
+}
+
+.VPButton.alt:hover {
+  transform: translateY(-1px);
+  background-color: var(--agent-brand-tint);
+}
+
+/* ── Feature Cards (Homepage) ──────────────────────────────────── */
+
+.VPFeatures .VPFeature {
+  transition: all var(--agent-transition-base);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: var(--agent-radius-lg);
+}
+
+.VPFeatures .VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  background-color: var(--agent-brand-tint-weak);
+  box-shadow: var(--agent-shadow-card);
+  transform: translateY(-2px);
+}
+
+.VPFeatures .VPFeature .title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── Content Typography ────────────────────────────────────────── */
+
+.vp-doc h1 {
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.vp-doc h2 {
+  letter-spacing: -0.01em;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--vp-c-divider);
+  margin-top: 2.5rem;
+}
+
+.vp-doc h2:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Body links get a subtle, always-visible underline so they read as links
+   without screaming brand color. Hover thickens + shifts hue. */
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+  text-decoration: underline;
+  text-decoration-thickness: var(--agent-link-underline-thickness);
+  text-decoration-color: var(--agent-brand-tint-strong);
+  text-underline-offset: var(--agent-link-underline-offset);
+  transition: color var(--agent-transition-fast),
+              text-decoration-color var(--agent-transition-fast),
+              text-decoration-thickness var(--agent-transition-fast);
+}
+
+.vp-doc a:hover {
+  color: var(--vp-c-brand-2);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+
+/* Headings and sidebar/nav anchors keep the original clean look (no underline). */
+.vp-doc h1 a,
+.vp-doc h2 a,
+.vp-doc h3 a,
+.vp-doc h4 a,
+.vp-doc h5 a,
+.vp-doc h6 a,
+.vp-doc .header-anchor {
+  text-decoration: none;
+}
+
+/* Better table styling */
+.vp-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  table-layout: auto;
+}
+
+.vp-doc th {
+  font-weight: 600;
+  text-align: left;
+}
+
+.vp-doc td,
+.vp-doc th {
+  padding: var(--agent-space-3) var(--agent-space-4);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+/* Inline code inside tables wraps instead of forcing horizontal scroll. */
+.vp-doc td code,
+.vp-doc th code {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.vp-doc tr:hover {
+  background-color: var(--agent-brand-tint-weak);
+}
+
+/* Tighten cell padding on small screens. */
+@media (max-width: 720px) {
+  .vp-doc td,
+  .vp-doc th {
+    padding: var(--agent-space-2) var(--agent-space-3);
+    font-size: 0.85rem;
+  }
+}
+
+/* Code block refinement */
+.vp-doc div[class*='language-'] {
+  border-radius: var(--agent-radius-md);
+  border: 1px solid var(--vp-c-divider);
+  position: relative;
+}
+
+/* Inline code: align font-size to the body line-height so inline tokens
+   don't sit too small inside paragraphs. */
+.vp-doc :not(pre) > code {
+  border-radius: var(--agent-radius-sm);
+  padding: 0.15em 0.4em;
+  font-size: 0.92em;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+/* Copy button affordance: VitePress hides the button until block hover.
+   Pin it visibly into the top-right corner with a soft background so users
+   notice it without dragging the cursor across the block. */
+.vp-doc div[class*='language-'] > button.copy {
+  top: var(--agent-space-2);
+  right: var(--agent-space-2);
+  opacity: 0.6;
+  background-color: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: var(--agent-radius-sm);
+  transition: opacity var(--agent-transition-fast),
+              background-color var(--agent-transition-fast),
+              border-color var(--agent-transition-fast);
+}
+
+.vp-doc div[class*='language-']:hover > button.copy,
+.vp-doc div[class*='language-'] > button.copy:focus-visible {
+  opacity: 1;
+  border-color: var(--vp-c-brand-1);
+  background-color: var(--agent-brand-tint);
+}
+
+/* Language label sits next to the copy button, keep them from overlapping. */
+.vp-doc div[class*='language-'] > span.lang {
+  right: 3.25rem;
+}
+
+/* ── Sidebar Refinement ────────────────────────────────────────── */
+
+.VPSidebar .VPSidebarItem.is-active > .item > .link > .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.VPSidebar .group-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-3);
+}
+
+/* Sidebar item hover: subtle brand-tinted background and a small inward shift
+   so the user feels which row is targeted. */
+.VPSidebar .VPSidebarItem > .item > .link {
+  border-radius: var(--agent-radius-sm);
+  padding: var(--agent-space-1) var(--agent-space-2);
+  transition: background-color var(--agent-transition-fast),
+              color var(--agent-transition-fast),
+              transform var(--agent-transition-fast);
+}
+
+.VPSidebar .VPSidebarItem > .item > .link:hover {
+  background-color: var(--agent-brand-tint-weak);
+  color: var(--vp-c-brand-1);
+  transform: translateX(2px);
+}
+
+/* Navbar menu item hover treatment, matched to the sidebar. */
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuGroup .button:hover {
+  background-color: var(--agent-brand-tint-weak);
+  border-radius: var(--agent-radius-sm);
+}
+
+/* ── Custom Containers (tip, warning, info) ────────────────────── */
+
+.vp-doc .custom-block {
+  border-radius: var(--agent-radius-md);
+  margin: 1.2rem 0;
+}
+
+.vp-doc .custom-block.tip {
+  border-color: var(--vp-c-brand-1);
+}
+
+.vp-doc .custom-block.tip .custom-block-title {
+  color: var(--vp-c-brand-1);
+}
+
+/* ── Footer ────────────────────────────────────────────────────── */
+
+.VPFooter {
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+/* ── Smooth transitions everywhere ─────────────────────────────── */
+
+.VPNavBar,
+.VPSidebar,
+.VPContent {
+  transition: background-color var(--agent-transition-slow),
+              border-color var(--agent-transition-slow);
+}
+
+/* ── Homepage sections below hero ──────────────────────────────── */
+
+.vp-doc .roadmap {
+  max-width: var(--agent-content-max-width);
+  margin: 0 auto;
+}
+
+/* Developer section CTA on homepage */
+.vp-doc .VPButton.medium.brand {
+  font-size: 0.9rem;
+  padding: var(--agent-space-2) var(--agent-space-6);
+  border-radius: var(--agent-radius-md);
+  background: var(--vp-c-brand-1);
+  color: white;
+  text-decoration: none;
+  transition: all var(--agent-transition-base);
+}
+
+.vp-doc .VPButton.medium.brand:hover {
+  background: var(--vp-c-brand-2);
+  transform: translateY(-1px);
+  box-shadow: var(--agent-shadow-md);
+  text-decoration: none;
+}
+
+/* ── Hide VitePress built-in extra menu (replaced by custom buttons) ── */
+
+/* Specificity bump via class repetition beats VitePress default rule
+   (.VPNav .VPNavBarExtra) and removes the need for !important. */
+.VPNavBarExtra.VPNavBarExtra {
+  display: none;
+}
+
+/* Also hide VitePress built-in appearance toggle (we have our own) */
+.VPNavBarAppearance.VPNavBarAppearance {
+  display: none;
+}
+
+/* ── Navbar brand lockup ─────────────────────────────────────────── */
+
+/* Gradient square-slash mark (themeConfig.logo) + "Vault Operator" in the
+   UI face, mirroring the plugin header: weight 600, tracking -0.01em, the
+   slash lives in the glyph now, not in the title text. */
+.VPNavBarTitle .title {
+  font-family: var(--vp-font-family-base);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+
+/* Glyph-to-wordmark gap, matched to the plugin header (9px). */
+.VPNavBarTitle .logo {
+  margin-right: 9px;
+}
+
+/* Don't let VitePress' grid clip the wordmark.
+   Class-repetition bumps specificity above VitePress' .VPNavBarTitle. */
+.VPNavBarTitle.VPNavBarTitle {
+  width: auto;
+}
+
+/* ── Navbar search box ─────────────────────────────────────────── */
+
+/* Wider search bar, nudged away from the logo, with a subtle border.
+   Class-repetition beats VitePress default .VPNavBarSearch (flex-grow: 1). */
+.VPNavBarSearch.VPNavBarSearch {
+  flex-grow: 0;
+  padding-left: 32px;
+}
+
+.VPNavBarSearch .DocSearch-Button {
+  width: 260px;
+  border: 1px solid var(--vp-c-divider);
+  background: transparent;
+  transition: border-color var(--agent-transition-base),
+              background var(--agent-transition-base);
+}
+
+.VPNavBarSearch .DocSearch-Button:hover {
+  border-color: var(--vp-c-brand-1);
+  background: var(--agent-brand-tint-weak);
+}
+
+/* ── Mermaid diagrams (vitepress-plugin-mermaid) ──────────────── */
+
+/* Mermaid renders inline SVG via Mermaid's default theme, which produces
+   light-on-light text in dark mode for some shapes (especially edge labels
+   and note shapes). Force readable foreground/background tokens. */
+
+.mermaid {
+  background-color: transparent;
+  margin: var(--agent-space-4) auto;
+  text-align: center;
+}
+
+/* Light mode: keep default Mermaid look but pin link/edge text. */
+.mermaid .edgeLabel,
+.mermaid .edgeLabel rect,
+.mermaid .edgeLabel foreignObject div {
+  background-color: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+}
+
+/* Dark mode: override Mermaid's hardcoded #333/#000 strokes + fills. */
+.dark .mermaid {
+  filter: none;
+}
+
+.dark .mermaid text,
+.dark .mermaid .nodeLabel,
+.dark .mermaid .edgeLabel p,
+.dark .mermaid .cluster-label,
+.dark .mermaid .actor,
+.dark .mermaid .messageText,
+.dark .mermaid .loopText,
+.dark .mermaid .noteText {
+  color: var(--vp-c-text-1);
+  fill: var(--vp-c-text-1);
+}
+
+/* edgeLabel needs both a readable foreground AND a matching background
+   (Mermaid defaults to white) so the label text doesn't sit on a white
+   sticker over a dark canvas. */
+.dark .mermaid .edgeLabel,
+.dark .mermaid .edgeLabel rect,
+.dark .mermaid .edgeLabel foreignObject div {
+  color: var(--vp-c-text-1);
+  fill: var(--vp-c-text-1);
+  background-color: var(--vp-c-bg);
+}
+
+/* Node shapes: keep stroke visible against dark background. */
+.dark .mermaid .node rect,
+.dark .mermaid .node polygon,
+.dark .mermaid .node circle,
+.dark .mermaid .node ellipse,
+.dark .mermaid .node path {
+  stroke: var(--vp-c-text-2);
+}
+
+/* Notes have white fill in default theme -- swap to bg-soft so text reads. */
+.dark .mermaid .note,
+.dark .mermaid rect.note {
+  fill: var(--vp-c-bg-soft);
+  stroke: var(--vp-c-divider);
+}
+
+/* ── Print styles ──────────────────────────────────────────────── */
+
+@media print {
+  /* Class-repetition keeps print-mode hides without !important. */
+  .VPNav.VPNav,
+  .VPSidebar.VPSidebar,
+  .VPFooter.VPFooter,
+  .edit-link.edit-link,
+  .prev-next.prev-next {
+    display: none;
+  }
+  .VPContent.VPContent {
+    padding: 0;
+  }
+}

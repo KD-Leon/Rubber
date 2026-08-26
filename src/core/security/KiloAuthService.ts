@@ -1,0 +1,401 @@
+/**
+ * KiloAuthService — Singleton für Kilo Gateway Auth & Session Management.
+ *
+ * Implementiert zwei Auth-Modi:
+ *   1. Device Authorization Flow — Browser-basierte Autorisierung
+ *   2. Manual Token — direkte API-Token-Eingabe
+ *
+ * Beide Modi landen im selben Session-State (KiloSession).
+ * Alle HTTP-Calls nutzen Obsidian's `requestUrl` (Review-Bot compliant).
+ * Der custom fetch-Wrapper (`getKiloFetch()`) wird in den OpenAI SDK injiziert
+ * für Streaming Chat Completions.
+ *
+ * @see ADR-040 (Provider Architecture)
+ * @see ADR-041 (Auth and Session Architecture)
+ * @see FEATURE-1301 (Auth & Session Management)
+ */
+
+import { requestUrl } from 'obsidian';
+import type { ObsidianAgentSettings } from '../../types/settings';
+import { safeOAuthErrorDetail } from './safeOAuthError';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const KILO_BASE = 'https://api.kilo.ai/api';
+const DEVICE_AUTH_START_URL = `${KILO_BASE}/device-auth/codes`;
+const PROFILE_URL           = `${KILO_BASE}/profile`;
+const DEFAULTS_URL          = `${KILO_BASE}/defaults`;
+
+function deviceAuthPollUrl(code: string): string {
+    return `${KILO_BASE}/device-auth/codes/${code}`;
+}
+
+function orgDefaultsUrl(orgId: string): string {
+    return `${KILO_BASE}/organizations/${orgId}/defaults`;
+}
+
+/** Polling-Intervall für Device Auth in ms. */
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLL_ATTEMPTS = 200; // ~10 min safety net (AUDIT-008 L-1)
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type KiloAuthMode = 'device-auth' | 'manual-token' | '';
+
+export interface KiloDeviceFlowResult {
+    /** Opaker Code für Polling. */
+    deviceCode: string;
+    /** Dem Nutzer anzuzeigender Code. */
+    userCode: string;
+    /** URL, die der Nutzer im Browser öffnen soll. */
+    verificationUri: string;
+    /** Gültigkeitsdauer in Sekunden. */
+    expiresIn: number;
+}
+
+export interface KiloSession {
+    authMode: KiloAuthMode;
+    accountLabel: string;
+    organizationId: string;
+    lastValidatedAt: number; // epoch seconds
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+export class KiloAuthService {
+    private static instance: KiloAuthService | null = null;
+
+    private token = '';
+    private session: KiloSession = {
+        authMode: '',
+        accountLabel: '',
+        organizationId: '',
+        lastValidatedAt: 0,
+    };
+
+    private saveCallback: (() => Promise<void>) | null = null;
+
+    private constructor() { /* Singleton — use getInstance() */ }
+
+    static getInstance(): KiloAuthService {
+        if (!KiloAuthService.instance) {
+            KiloAuthService.instance = new KiloAuthService();
+        }
+        return KiloAuthService.instance;
+    }
+
+    // ---------------------------------------------------------------------------
+    // State management
+    // ---------------------------------------------------------------------------
+
+    loadFromSettings(settings: ObsidianAgentSettings): void {
+        this.token = settings.kiloToken ?? '';
+        this.session = {
+            authMode: settings.kiloAuthMode ?? '',
+            accountLabel: settings.kiloAccountLabel ?? '',
+            organizationId: settings.kiloOrganizationId ?? '',
+            lastValidatedAt: settings.kiloLastValidatedAt ?? 0,
+        };
+    }
+
+    saveToSettings(settings: ObsidianAgentSettings): void {
+        settings.kiloToken = this.token;
+        settings.kiloAuthMode = this.session.authMode;
+        settings.kiloAccountLabel = this.session.accountLabel;
+        settings.kiloOrganizationId = this.session.organizationId;
+        settings.kiloLastValidatedAt = this.session.lastValidatedAt;
+    }
+
+    setSaveCallback(cb: () => Promise<void>): void {
+        this.saveCallback = cb;
+    }
+
+    isAuthenticated(): boolean {
+        return this.token.length > 0;
+    }
+
+    getToken(): string {
+        return this.token;
+    }
+
+    getSession(): Readonly<KiloSession> {
+        return { ...this.session };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Device Authorization Flow (FEATURE-1301)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Schritt 1: Device Auth starten.
+     * Gibt userCode + verificationUri zurück, die dem Nutzer angezeigt werden.
+     */
+    async startDeviceAuth(): Promise<KiloDeviceFlowResult> {
+        const res = await requestUrl({
+            url: DEVICE_AUTH_START_URL,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({ client_id: 'obsilo' }),
+            throw: false,
+        });
+
+        if (res.status >= 400) {
+            throw new Error(`Kilo device auth failed (HTTP ${res.status})`);
+        }
+
+        const data = res.json as Record<string, unknown>;
+        if (!data.code || !data.user_code) {
+            throw new Error(`Kilo device auth: ${safeOAuthErrorDetail(data)}`);
+        }
+
+        return {
+            deviceCode: data.code as string,
+            userCode: data.user_code as string,
+            verificationUri: (data.verification_uri as string) ?? 'https://app.kilo.ai/auth',
+            expiresIn: (data.expires_in as number) ?? 600,
+        };
+    }
+
+    /**
+     * Schritt 2: Auf Nutzer-Autorisierung warten (Polling).
+     * Blockiert bis Erfolg, Fehler oder AbortSignal.
+     */
+    async pollForSession(deviceCode: string, signal?: AbortSignal): Promise<void> {
+        for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+            if (signal?.aborted) {
+                throw new Error('Authorization cancelled');
+            }
+
+            await this.sleep(POLL_INTERVAL_MS);
+
+            if (signal?.aborted) {
+                throw new Error('Authorization cancelled');
+            }
+
+            const res = await requestUrl({
+                url: deviceAuthPollUrl(deviceCode),
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+                throw: false,
+            });
+
+            if (res.status === 202) {
+                // Authorization pending — weiter pollen
+                continue;
+            }
+
+            if (res.status === 200) {
+                const data = res.json as Record<string, unknown>;
+                const token = (data.token ?? data.access_token) as string | undefined;
+                if (!token) {
+                    throw new Error('Kilo auth: no token in response');
+                }
+                this.token = token;
+                this.session.authMode = 'device-auth';
+                this.session.lastValidatedAt = Math.floor(Date.now() / 1000);
+                await this.loadProfile();
+                await this.persist();
+                return;
+            }
+
+            if (res.status === 400) {
+                const data = res.json as Record<string, unknown>;
+                const error = data.error as string | undefined;
+                if (error === 'authorization_pending') continue;
+                if (error === 'expired_token') throw new Error('Device code expired. Start authorization again.');
+                if (error === 'access_denied') throw new Error('Authorization was denied.');
+                throw new Error(`Kilo auth error: ${error ?? safeOAuthErrorDetail(data)}`);
+            }
+
+            throw new Error(`Kilo auth poll failed (HTTP ${res.status})`);
+        }
+        throw new Error('Authorization timed out. Please try again.');
+    }
+
+    // ---------------------------------------------------------------------------
+    // Manual Token (FEATURE-1307)
+    // ---------------------------------------------------------------------------
+
+    async validateAndSetManualToken(token: string): Promise<void> {
+        const res = await requestUrl({
+            url: PROFILE_URL,
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json',
+            },
+            throw: false,
+        });
+
+        if (res.status === 401 || res.status === 403) {
+            throw new Error('Invalid token — authentication rejected by Kilo.');
+        }
+        if (res.status >= 400) {
+            throw new Error(`Token validation failed (HTTP ${res.status})`);
+        }
+
+        this.token = token;
+        this.session.authMode = 'manual-token';
+        this.session.lastValidatedAt = Math.floor(Date.now() / 1000);
+
+        const data = res.json as Record<string, unknown>;
+        this.session.accountLabel = this.extractAccountLabel(data);
+
+        await this.persist();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Profile & Organization Context (FEATURE-1305)
+    // ---------------------------------------------------------------------------
+
+    async loadProfile(): Promise<void> {
+        if (!this.token) return;
+
+        try {
+            const res = await requestUrl({
+                url: PROFILE_URL,
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${this.token}`,
+                    'Accept': 'application/json',
+                },
+                throw: false,
+            });
+
+            if (res.status === 200) {
+                const data = res.json as Record<string, unknown>;
+                this.session.accountLabel = this.extractAccountLabel(data);
+            }
+        } catch (e) {
+            console.warn('[KiloAuth] Profile load failed:', e);
+        }
+    }
+
+    async setOrganization(orgId: string): Promise<void> {
+        this.session.organizationId = orgId;
+        await this.persist();
+    }
+
+    async loadOrgDefaults(): Promise<Record<string, unknown>> {
+        const orgId = this.session.organizationId;
+        const url = orgId ? orgDefaultsUrl(orgId) : DEFAULTS_URL;
+
+        const res = await requestUrl({
+            url,
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${this.token}`,
+                'Accept': 'application/json',
+            },
+            throw: false,
+        });
+
+        if (res.status !== 200) return {};
+        return res.json as Record<string, unknown>;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Disconnect
+    // ---------------------------------------------------------------------------
+
+    async disconnect(): Promise<void> {
+        // AUDIT-034 L-10: server-side revocation is deferred until Kilo
+        // publishes a documented token-revocation endpoint. Survey on
+        // 2026-06-22 (audit cut): api.kilo.ai has no /oauth/revoke, no
+        // /auth/revoke, no /logout, no DELETE /tokens; the forked KiloCode
+        // reference client (forked-kilocode/src/core/webview/ClineProvider.ts
+        // logout branch) also clears the local token only. Until then
+        // disconnect() clears local credentials only; a previously exfiltrated
+        // token remains valid against the Kilo API until provider-side
+        // rotation catches up. Local state is always cleared.
+        //
+        // TODO(L-10): revisit when Kilo publishes a revoke endpoint. Mirror the
+        // ChatGptOAuthService.logout best-effort pattern (try/catch around
+        // requestUrl, console.debug on failure, never throw, clear local state
+        // afterwards). Tracking note: _devprocess/handoffs/2026-06-22 (L-10).
+        this.token = '';
+        this.session = {
+            authMode: '',
+            accountLabel: '',
+            organizationId: '',
+            lastValidatedAt: 0,
+        };
+        await this.persist();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Custom Fetch für OpenAI SDK (ADR-040)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Gibt einen fetch-kompatiblen Wrapper zurück, der Kilo-Auth-Header injiziert.
+     * Wird als `new OpenAI({ fetch: authService.getKiloFetch(createNodeFetch()) })`
+     * übergeben.
+     *
+     * FIX-13-02-03 (Issue #64): der Wrapper rief früher unbedingt window.fetch.
+     * Im Electron-Renderer (Origin app://obsidian.md) gilt dort die
+     * CORS-Durchsetzung, und api.kilo.ai sendet keinen
+     * Access-Control-Allow-Origin-Header, weil der Dienst für die
+     * VS-Code-Extension gebaut ist, die in Node läuft. Jeder Chat-Request
+     * scheiterte deshalb schon am Preflight. Die OAuth-Calls derselben Klasse
+     * gehen über requestUrl und waren nie betroffen, weshalb die Anmeldung
+     * funktionierte und nur der Chat tot war.
+     *
+     * @param baseFetch Transport, an den delegiert wird. Default bleibt
+     * window.fetch, damit Aufrufer ohne Node-Transport unverändert laufen.
+     */
+    getKiloFetch(baseFetch: typeof window.fetch = window.fetch): typeof window.fetch {
+        return async (
+            input: RequestInfo | URL,
+            init?: RequestInit,
+        ): Promise<Response> => {
+            const headers = new Headers(init?.headers);
+
+            headers.set('Authorization', `Bearer ${this.token}`);
+
+            const orgId = this.session.organizationId;
+            if (orgId) {
+                headers.set('X-KiloCode-OrganizationId', orgId);
+            }
+
+            return baseFetch(input, { ...init, headers });
+        };
+    }
+
+    // ---------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------
+
+    private extractAccountLabel(profile: Record<string, unknown>): string {
+        // Kilo profile may use email, username, or name depending on account type
+        return (
+            (profile.email as string) ??
+            (profile.username as string) ??
+            (profile.name as string) ??
+            ''
+        );
+    }
+
+    private async persist(): Promise<void> {
+        if (this.saveCallback) {
+            try {
+                await this.saveCallback();
+            } catch (e) {
+                console.warn('[KiloAuth] Failed to persist session:', e);
+            }
+        }
+    }
+
+    private sleep(ms: number): Promise<void> {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+}

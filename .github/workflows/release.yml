@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g. 1.0.0 — must match manifest.json)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit
+      # SHAs (mutable tags are not an immutable reference); Dependabot bumps them.
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Do not leave the GITHUB_TOKEN in .git/config where an install
+          # lifecycle script could read and exfiltrate it.
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      # FIX-28-04: use the verified lockfile with `npm ci --ignore-scripts`
+      # instead of discarding it and running `npm install` with lifecycle
+      # scripts. The rollup platform binary is pinned to the lockfile version
+      # (the .npmrc `omit=optional` skips it under ci, so it is added explicitly).
+      - name: Install dependencies
+        run: |
+          # --include=optional overrides the .npmrc `omit=optional` so the
+          # platform binaries esbuild/rollup (incl. vitepress's) install from the
+          # verified lockfile; --ignore-scripts keeps the H-3 lifecycle guard.
+          npm ci --include=optional --ignore-scripts --no-audit --no-fund
+
+      - name: Build plugin
+        run: node esbuild.config.mjs production
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          cp main.js manifest.json styles.css release-assets/
+
+          # Optional assets (Phase 2) -- downloaded on demand by users
+          # via Settings, never auto-installed. Published to a SEPARATE
+          # release tag (${version}-assets) so the main plugin release
+          # contains only the three files Obsidian itself supports
+          # (main.js, manifest.json, styles.css). Keeping them on a
+          # separate tag avoids confusing the Community Plugin review
+          # bot's "extra files in release" recommendation while still
+          # giving OptionalAssetManager a stable per-version URL.
+          mkdir -p optional-assets
+          if [ -f "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm" ]; then
+            cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm optional-assets/
+          fi
+          if [ -f "plugin-source.json" ]; then
+            cp plugin-source.json optional-assets/
+          fi
+          if [ -f "office-bundle.js" ]; then
+            cp office-bundle.js optional-assets/
+          fi
+          if [ -f "pdfjs-bundle.js" ]; then
+            cp pdfjs-bundle.js optional-assets/
+          fi
+          if [ -f "reranker-bundle.js" ]; then
+            cp reranker-bundle.js optional-assets/
+          fi
+          # FEAT-42-05: on-demand language packs (locale-<code>.json),
+          # emitted by generateLocaleHashes() during the build.
+          for f in locale-*.json; do
+            [ -f "$f" ] && cp "$f" optional-assets/
+          done
+
+          echo "=== Plugin release assets ==="
+          ls -lh release-assets/
+          echo "=== Optional assets (separate tag) ==="
+          ls -lh optional-assets/
+
+      - name: Verify build output
+        run: |
+          ls -lh release-assets/main.js release-assets/manifest.json release-assets/styles.css
+          echo "manifest version: $(jq -r .version release-assets/manifest.json)"
+          echo "Optional assets:"
+          for f in optional-assets/*; do
+            if [ -f "$f" ]; then
+              echo "  $(basename "$f")  $(ls -lh "$f" | awk '{print $5}')  sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)"
+            fi
+          done
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            release-assets/main.js
+            release-assets/manifest.json
+            release-assets/styles.css
+            optional-assets/ort-wasm-simd-threaded.wasm
+            optional-assets/plugin-source.json
+            optional-assets/office-bundle.js
+            optional-assets/pdfjs-bundle.js
+            optional-assets/reranker-bundle.js
+            optional-assets/locale-*.json
+
+      # IMPORTANT: order matters. The Obsidian community plugin crawler
+       # walks the GitHub releases list and matches the manifest.json
+       # `version` against the latest release tag. If `${version}-assets`
+       # is published AFTER `${version}`, GitHub orders it as the most
+       # recent release and Obsidian fails to match (the crawler sees
+       # `-assets` on top, doesn't find that string in manifest.json,
+       # and stops). Fix: publish `-assets` FIRST, then the manifest-
+       # matching release, and pin `make_latest` explicitly so the
+       # behaviour doesn't depend on creation order.
+      - name: Create GitHub Release (optional assets)
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ inputs.version }}-assets
+          name: ${{ inputs.version }} -- Optional assets
+          make_latest: 'false'
+          body: |
+            Optional assets for Vault Operator v${{ inputs.version }}.
+
+            These files are downloaded on demand by the plugin only after
+            an explicit user click in Settings:
+
+            - `ort-wasm-simd-threaded.wasm` -- semantic reranker WASM (~12 MB)
+            - `reranker-bundle.js` -- transformers + onnxruntime-web JS library (~0.6 MB)
+            - `plugin-source.json` -- self-development source bundle (~5 MB)
+            - `office-bundle.js` -- exceljs + docx + pptxgenjs (~1.7 MB)
+            - `pdfjs-bundle.js` -- pdfjs-dist + worker (~1.6 MB)
+            - `locale-<code>.json` -- UI language packs (de, zh, zh-tw, ja, ko, es, fr, ru; ~0.2 MB each)
+
+            They are NOT part of the plugin's main release tag so the
+            Obsidian plugin installer never sees them. SHA-256 hashes are
+            pinned in the plugin code (`assetHashes.ts`, `locale-hashes.ts`)
+            and verified before any file is persisted.
+          files: |
+            optional-assets/ort-wasm-simd-threaded.wasm
+            optional-assets/plugin-source.json
+            optional-assets/office-bundle.js
+            optional-assets/pdfjs-bundle.js
+            optional-assets/reranker-bundle.js
+            optional-assets/locale-*.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (plugin)
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ inputs.version }}
+          name: ${{ inputs.version }}
+          make_latest: 'true'
+          body: |
+            ## Vault Operator v${{ inputs.version }}
+
+            Install from the Obsidian Community Plugins store:
+            1. Settings → Community plugins → Browse
+            2. Search for "Vault Operator" and click Install, then Enable
+
+            Store page: https://obsidian.md/plugins?id=vault-operator
+
+            Or install manually:
+            1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/vault-operator/`
+            2. Reload Obsidian
+
+            ### Optional assets
+            Four optional downloads (semantic reranker, self-development source
+            bundle, office document support, PDF parser) are published as a
+            separate tag `${{ inputs.version }}-assets` and installed on demand
+            from the plugin's Settings, never silently. The plugin works
+            without any of them; the affected tool reports "not installed"
+            until you click Install.
+          files: |
+            release-assets/main.js
+            release-assets/manifest.json
+            release-assets/styles.css
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

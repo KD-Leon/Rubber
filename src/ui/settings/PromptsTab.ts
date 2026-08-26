@@ -1,0 +1,266 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+import { App, Notice, setIcon } from 'obsidian';
+import type ObsidianAgentPlugin from '../../main';
+import type { CustomPrompt } from '../../types/settings';
+import { BUILT_IN_MODES } from '../../core/modes/builtinModes';
+import { t } from '../../i18n';
+
+export class PromptsTab {
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+
+    private buildIntroSection(containerEl: HTMLElement): void {
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(infoIcon, 'lightbulb');
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
+        infoText.createEl('strong', { text: t('settings.prompts.introTitle') });
+        infoText.createDiv({ text: t('settings.prompts.introDesc') });
+        infoText.createDiv({ text: t('settings.prompts.introDiff') });
+    }
+
+    build(containerEl: HTMLElement): void {
+        containerEl.createEl('h3', { text: t('settings.prompts.heading') });
+        this.buildIntroSection(containerEl);
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: t('settings.prompts.desc'),
+        });
+
+        let editingId: string | null = null;
+
+        const savePrompts = async (prompts: CustomPrompt[]) => {
+            this.plugin.settings.customPrompts = prompts;
+            await this.plugin.saveSettings();
+        };
+
+        const allModes = [
+            ...BUILT_IN_MODES,
+            ...(this.plugin.settings.customModes ?? []),
+        ];
+
+        // ── Create row (same pattern as Skills/Rules/Workflows) ─────────
+        const createRow = containerEl.createDiv({ cls: 'agent-rules-create-row' });
+        const nameInput = createRow.createEl('input', {
+            type: 'text', placeholder: t('settings.prompts.namePlaceholder'),
+            cls: 'agent-rules-name-input',
+        });
+        const createBtn = createRow.createEl('button', { text: t('settings.prompts.create'), cls: 'mod-cta' });
+
+        // Import button
+        const importBtn = createRow.createEl('button', { text: t('settings.prompts.import'), cls: 'agent-rules-import-btn' });
+        importBtn.addEventListener('click', () => {
+            const fileInput = createEl('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.json';
+            fileInput.addEventListener('change', () => { void (async () => {
+                const file = fileInput.files?.[0];
+                if (!file) return;
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    if (!data.name || !data.slug || !data.content) {
+                        new Notice(t('settings.prompts.invalidFile'));
+                        return;
+                    }
+                    const prompts = [...(this.plugin.settings.customPrompts ?? [])];
+                    prompts.push({
+                        id: `custom-${Date.now()}`,
+                        name: data.name,
+                        slug: data.slug,
+                        content: data.content,
+                        enabled: true,
+                        mode: data.mode || undefined,
+                    });
+                    await savePrompts(prompts);
+                    renderList();
+                } catch {
+                    new Notice(t('settings.prompts.importFailed'));
+                }
+            })(); });
+            fileInput.click();
+        });
+
+        // ── Inline form (edit only — appears when editing a prompt) ─────
+        const formEl = containerEl.createDiv({ cls: 'agent-prompt-form' });
+        formEl.classList.add('agent-u-hidden');
+
+        const formTitle = formEl.createEl('p', { cls: 'agent-prompt-form-title', text: t('settings.prompts.newPrompt') });
+        const formNameInput = formEl.createEl('input', {
+            type: 'text', placeholder: t('settings.prompts.formName'),
+            cls: 'agent-prompt-input',
+        });
+        const slugInput = formEl.createEl('input', {
+            type: 'text', placeholder: t('settings.prompts.formSlug'),
+            cls: 'agent-prompt-input',
+        });
+
+        formNameInput.addEventListener('input', () => {
+            if (!editingId) {
+                slugInput.value = formNameInput.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-+|-+$/g, '');
+            }
+        });
+
+        const contentInput = formEl.createEl('textarea', {
+            placeholder: t('settings.prompts.formTemplate'),
+            cls: 'agent-prompt-textarea',
+        });
+        contentInput.rows = 5;
+
+        formEl.createEl('p', {
+            cls: 'agent-empty-state',
+            text: t('settings.prompts.variables'),
+        });
+
+        // Optional mode selector
+        const modeRow = formEl.createDiv({ cls: 'agent-prompt-mode-row' });
+        modeRow.createEl('label', { text: t('settings.prompts.modeLabel'), cls: 'agent-prompt-mode-label' });
+        const modeSelect = modeRow.createEl('select', { cls: 'agent-prompt-input agent-prompt-mode-select' });
+        modeSelect.createEl('option', { value: '', text: t('settings.prompts.modeAll') });
+        for (const mode of allModes) {
+            modeSelect.createEl('option', { value: mode.slug, text: mode.name });
+        }
+        modeRow.createSpan({
+            cls: 'agent-empty-state',
+            text: t('settings.prompts.modeHint'),
+        });
+
+        const formBtns = formEl.createDiv({ cls: 'agent-prompt-form-btns' });
+        const saveBtn = formBtns.createEl('button', { text: t('settings.prompts.save'), cls: 'mod-cta' });
+        const cancelBtn = formBtns.createEl('button', { text: t('settings.prompts.cancel') });
+
+        const openForm = (prompt?: CustomPrompt) => {
+            editingId = prompt?.id ?? null;
+            formTitle.setText(prompt ? t('settings.prompts.editPrompt') : t('settings.prompts.newPrompt'));
+            formNameInput.value = prompt?.name ?? '';
+            slugInput.value = prompt?.slug ?? '';
+            contentInput.value = prompt?.content ?? '';
+            modeSelect.value = prompt?.mode ?? '';
+            formEl.classList.remove('agent-u-hidden');
+            formNameInput.focus();
+        };
+
+        cancelBtn.addEventListener('click', () => {
+            formEl.classList.add('agent-u-hidden');
+            editingId = null;
+        });
+
+        saveBtn.addEventListener('click', () => { void (async () => {
+            const name = formNameInput.value.trim();
+            const slug = slugInput.value.trim().replace(/[^a-z0-9-]/g, '');
+            const content = contentInput.value.trim();
+            if (!name || !slug || !content) return;
+
+            const mode = modeSelect.value || undefined;
+            const prompts = [...(this.plugin.settings.customPrompts ?? [])];
+            if (editingId) {
+                const idx = prompts.findIndex((p) => p.id === editingId);
+                if (idx !== -1) prompts[idx] = { ...prompts[idx], name, slug, content, mode };
+            } else {
+                prompts.push({ id: `custom-${Date.now()}`, name, slug, content, enabled: true, mode });
+            }
+            await savePrompts(prompts);
+            formEl.classList.add('agent-u-hidden');
+            editingId = null;
+            renderList();
+        })(); });
+
+        createBtn.addEventListener('click', () => {
+            const rawName = nameInput.value.trim();
+            if (!rawName) return;
+            const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+            openForm({ id: '', name: rawName, slug, content: '', enabled: true });
+            editingId = null; // new prompt, not editing existing
+            nameInput.value = '';
+        });
+
+        // ── Prompt list ─────────────────────────────────────────────────
+        const listEl = containerEl.createDiv({ cls: 'agent-rules-list' });
+
+        const renderList = () => {
+            listEl.empty();
+            const prompts = this.plugin.settings.customPrompts ?? [];
+            if (prompts.length === 0) {
+                listEl.createEl('p', {
+                    cls: 'agent-empty-state',
+                    text: t('settings.prompts.empty'),
+                });
+                return;
+            }
+            // Boxed table, same visual language as the Models table (IMP-04-10-01).
+            const table = listEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
+            const thead = table.createEl('thead');
+            const hr = thead.createEl('tr');
+            hr.createEl('th', { text: t('settings.prompts.headerPrompt') });
+            hr.createEl('th', { text: '', cls: 'agent-th-actions' });
+            hr.createEl('th', { text: t('settings.prompts.headerActive'), cls: 'agent-skill-th-toggle' });
+            const tbody = table.createEl('tbody');
+            for (const p of prompts) {
+                const row = tbody.createEl('tr');
+                const nameTd = row.createEl('td', { cls: 'agent-skill-name-cell' });
+                nameTd.createDiv({ text: p.name, cls: 'agent-skill-name' });
+                const sub = nameTd.createDiv({ cls: 'agent-skill-desc' });
+                sub.createSpan({ cls: 'agent-workflow-slug', text: `/${p.slug}` });
+                if (p.mode) {
+                    const modeName = allModes.find((m) => m.slug === p.mode)?.name ?? p.mode;
+                    sub.createSpan({ cls: 'agent-prompt-mode-badge', text: modeName });
+                }
+
+                const actions = row.createEl('td', { cls: 'agent-actions-cell' });
+
+                const editBtn = actions.createEl('button', { cls: 'agent-rules-edit-btn' });
+                setIcon(editBtn, 'pencil');
+                editBtn.setAttribute('aria-label', t('settings.prompts.edit'));
+                editBtn.addEventListener('click', () => openForm(p));
+
+                const exportBtn = actions.createEl('button', { cls: 'agent-rules-export-btn' });
+                setIcon(exportBtn, 'download');
+                exportBtn.setAttribute('aria-label', t('settings.prompts.export'));
+                exportBtn.addEventListener('click', () => {
+                    const data = { name: p.name, slug: p.slug, content: p.content, mode: p.mode };
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = createEl('a');
+                    a.href = url;
+                    a.download = `prompt-${p.slug}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                });
+
+                const delBtn = actions.createEl('button', { cls: 'agent-rules-delete-btn' });
+                setIcon(delBtn, 'trash-2');
+                delBtn.setAttribute('aria-label', t('settings.prompts.delete'));
+                delBtn.addEventListener('click', () => { void (async () => {
+                    const updated = (this.plugin.settings.customPrompts ?? []).filter((cp) => cp.id !== p.id);
+                    await savePrompts(updated);
+                    renderList();
+                })(); });
+
+                // Enable/disable toggle
+                const isActive = p.enabled !== false;
+                const toggleTd = row.createEl('td', { cls: 'agent-skill-toggle-cell' });
+                const toggleEl = toggleTd.createDiv({
+                    cls: `checkbox-container agent-rules-toggle${isActive ? ' is-enabled' : ''}`,
+                });
+                toggleEl.addEventListener('click', () => { void (async () => {
+                    const prompts = [...(this.plugin.settings.customPrompts ?? [])];
+                    const idx = prompts.findIndex((cp) => cp.id === p.id);
+                    if (idx !== -1) {
+                        prompts[idx] = { ...prompts[idx], enabled: prompts[idx].enabled === false };
+                        await savePrompts(prompts);
+                        toggleEl.toggleClass('is-enabled', prompts[idx].enabled !== false);
+                    }
+                })(); });
+            }
+        };
+
+        // Insert form before list
+        containerEl.insertBefore(formEl, listEl);
+        renderList();
+    }
+
+}
+
+/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

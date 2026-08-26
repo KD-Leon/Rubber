@@ -1,0 +1,100 @@
+/**
+ * runtimeWorker -- materialise inline worker code as a file inside the
+ * vault, so child_process.spawn() / cp.fork() can launch it.
+ *
+ * Why a file at all: Node's spawn/fork need a script path. They cannot
+ * accept inline JavaScript directly. We therefore write the inlined
+ * worker code to a temp file the first time it is needed, then reuse
+ * that file on subsequent launches.
+ *
+ * Why the vault and not pluginDir: writing into the plugin directory
+ * triggers Obsidian's "self-update" pattern in the review bot. Writing
+ * to the user's vault is the normal job of a plugin and is allowed.
+ *
+ * Location: `<vault>/.vault-operator/runtime/<name>`. Hidden dot-folder
+ * keeps it out of normal note search; the runtime/ subfolder makes it
+ * obvious to the user what these files are for.
+ *
+ * Cache validation: SHA-256 of the inlined code is computed at call
+ * time, stored in a sidecar `.sha256` file, and checked before every
+ * reuse. AUDIT-024 M-1: a byte-length-only check was rejected because
+ * a forged file with the same size could survive (another local
+ * plugin, OS-level actor). A full SHA check costs about 1 ms for
+ * worker-sized blobs and is paid only when the worker is first
+ * needed.
+ */
+
+import type { Plugin } from 'obsidian';
+import * as safeFs from '../security/safeFs';
+import * as path from 'path';
+import * as crypto from 'crypto';
+
+const RUNTIME_DIR = '.vault-operator/runtime';
+
+/** AUDIT-024 L-1: whitelist the worker filenames we materialise.
+ *  AUDIT-2026-07-29 L-3: 'sandbox-worker.js' dropped -- the vm sandbox worker
+ *  was removed at SBX-1 and no call site materialises it (only McpTab passes
+ *  'mcp-server-worker.js'); the dead allow-entry is removed to keep the
+ *  whitelist minimal. */
+const ALLOWED_WORKER_NAMES = new Set(['mcp-server-worker.js']);
+
+/**
+ * Materialise `code` as `<vault>/.vault-operator/runtime/<name>`.
+ * Returns the absolute filesystem path to the materialised file.
+ *
+ * @throws if the adapter is not a FileSystemAdapter (Desktop only),
+ *         if `name` is not in the whitelist, or if writing fails.
+ */
+export function ensureRuntimeWorker(plugin: Plugin, name: string, code: string): string {
+    // AUDIT-024 L-1: reject anything that smells like path-traversal
+    // or that is not in the small whitelist we expect at call sites.
+    if (!ALLOWED_WORKER_NAMES.has(name)) {
+        throw new Error(`ensureRuntimeWorker: unknown worker name ${JSON.stringify(name)}`);
+    }
+    if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+        throw new Error(`ensureRuntimeWorker: path traversal rejected for ${JSON.stringify(name)}`);
+    }
+
+    const adapter = plugin.app.vault.adapter as { getBasePath?: () => string };
+    if (!adapter.getBasePath) {
+        throw new Error('ensureRuntimeWorker requires a FileSystemAdapter (Desktop only)');
+    }
+    const basePath = adapter.getBasePath();
+    const dirAbs = path.join(basePath, RUNTIME_DIR);
+    const fileAbs = path.join(dirAbs, name);
+    const sidecarAbs = fileAbs + '.sha256';
+
+    // Defense-in-depth: even with the whitelist check above, verify
+    // the resolved path still sits inside the runtime directory.
+    if (!fileAbs.startsWith(dirAbs + path.sep)) {
+        throw new Error(`ensureRuntimeWorker: path escapes runtime dir: ${fileAbs}`);
+    }
+
+    const expectedSha = crypto.createHash('sha256').update(code, 'utf-8').digest('hex');
+
+    // Cache hit: the WORKER FILE hashes to the SHA of the inlined code.
+    //
+    // AUDIT 2026-07-26 (P3): this used to compare the SIDECAR against the
+    // expected SHA and then merely check that the worker file existed. The
+    // sidecar is an ordinary file next to the worker, so anything that could
+    // overwrite the worker could leave the sidecar untouched and have its code
+    // loaded on the next spawn -- the check verified the receipt, not the goods.
+    // Same lesson as M-1 in this audit: an authority the attacker can write is
+    // not an authority. Hashing the file itself makes the sidecar unnecessary
+    // for the decision; it is still written, but only as a cheap human-readable
+    // marker.
+    try {
+        if (safeFs.existsSync(fileAbs)) {
+            const onDisk = safeFs.readFileSync(fileAbs, 'utf-8');
+            const actualSha = crypto.createHash('sha256').update(onDisk, 'utf-8').digest('hex');
+            if (actualSha === expectedSha) return fileAbs;
+        }
+    } catch {
+        // unreadable -- fall through and rewrite, which is the safe direction
+    }
+
+    safeFs.mkdirSync(dirAbs, { recursive: true });
+    safeFs.writeFileSync(fileAbs, code, 'utf-8');
+    safeFs.writeFileSync(sidecarAbs, expectedSha, 'utf-8');
+    return fileAbs;
+}

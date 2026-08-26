@@ -1,0 +1,10 @@
+mode = "github-sync"
+# v4: full = every phase skill binding (this project runs the complete
+# V-Model); lean would make only decisions/navigation/backlog binding.
+profile = "full"
+source_branch = "dev"
+
+[github]
+# project_number = <set to the GitHub Project number for auto-add>
+# status_field = "Status"
+# project_owner = "pssah4"

@@ -1,0 +1,155 @@
+import { App, Notice, setIcon } from 'obsidian';
+import type ObsidianAgentPlugin from '../../main';
+import { ContentEditorModal } from './ContentEditorModal';
+import { RulesLoader } from '../../core/context/RulesLoader';
+import { t } from '../../i18n';
+
+export class RulesTab {
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+
+    private buildIntroSection(containerEl: HTMLElement): void {
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(infoIcon, 'lightbulb');
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
+        infoText.createEl('strong', { text: t('settings.rules.introTitle') });
+        infoText.createDiv({ text: t('settings.rules.introDesc') });
+        infoText.createDiv({ text: t('settings.rules.introDiff') });
+    }
+
+    build(containerEl: HTMLElement): void {
+        containerEl.createEl('h3', { text: t('settings.rules.heading') });
+        this.buildIntroSection(containerEl);
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: t('settings.rules.desc'),
+        });
+
+        const rulesLoader = this.plugin.rulesLoader;
+
+        // ── Create row ───────────────────────────────────────────────────
+        const createRow = containerEl.createDiv({ cls: 'agent-rules-create-row' });
+        const nameInput = createRow.createEl('input', {
+            type: 'text', placeholder: t('settings.rules.placeholder'),
+            cls: 'agent-rules-name-input',
+        });
+        const createBtn = createRow.createEl('button', { text: t('settings.rules.create'), cls: 'mod-cta' });
+
+        // Import button
+        const importBtn = createRow.createEl('button', { text: t('settings.rules.import'), cls: 'agent-rules-import-btn' });
+        importBtn.addEventListener('click', () => {
+            const fileInput = createEl('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.md,.txt';
+            fileInput.addEventListener('change', () => { void (async () => {
+                const file = fileInput.files?.[0];
+                if (!file || !rulesLoader) return;
+                const content = await file.text();
+                const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+                try {
+                    await rulesLoader.createRule(nameWithoutExt, content);
+                    await refreshList();
+                } catch {
+                    new Notice(t('settings.rules.importFailed'));
+                }
+            })(); });
+            fileInput.click();
+        });
+
+        // ── Rule list ────────────────────────────────────────────────────
+        const listEl = containerEl.createDiv({ cls: 'agent-rules-list' });
+
+        const refreshList = async () => {
+            listEl.empty();
+            if (!rulesLoader) {
+                listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.rules.loaderNotAvailable') });
+                return;
+            }
+            const paths: string[] = await rulesLoader.discoverRules();
+            if (paths.length === 0) {
+                listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.rules.empty') });
+                return;
+            }
+            // Boxed table, same visual language as the Models table (IMP-04-10-01).
+            const table = listEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
+            const thead = table.createEl('thead');
+            const hr = thead.createEl('tr');
+            hr.createEl('th', { text: t('settings.rules.headerRule') });
+            hr.createEl('th', { text: '', cls: 'agent-th-actions' });
+            hr.createEl('th', { text: t('settings.rules.headerActive'), cls: 'agent-skill-th-toggle' });
+            const tbody = table.createEl('tbody');
+            for (const rPath of paths) {
+                const row = tbody.createEl('tr');
+                const nameTd = row.createEl('td', { cls: 'agent-skill-name-cell' });
+                nameTd.createDiv({ text: RulesLoader.displayName(rPath), cls: 'agent-skill-name' });
+
+                const actions = row.createEl('td', { cls: 'agent-actions-cell' });
+
+                const editBtn = actions.createEl('button', { cls: 'agent-rules-edit-btn' });
+                setIcon(editBtn, 'pencil');
+                editBtn.setAttribute('aria-label', t('settings.rules.edit'));
+                editBtn.addEventListener('click', () => { void (async () => {
+                    const content = await rulesLoader.readFile(rPath);
+                    new ContentEditorModal(this.app, t('settings.rules.editRule', { name: RulesLoader.displayName(rPath) }), content, (newContent) => {
+                        return rulesLoader.writeFile(rPath, newContent);
+                    }).open();
+                })(); });
+
+                const exportBtn = actions.createEl('button', { cls: 'agent-rules-export-btn' });
+                setIcon(exportBtn, 'download');
+                exportBtn.setAttribute('aria-label', t('settings.rules.export'));
+                exportBtn.addEventListener('click', () => { void (async () => {
+                    const content = await rulesLoader.readFile(rPath);
+                    const blob = new Blob([content], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = createEl('a');
+                    a.href = url;
+                    a.download = `${RulesLoader.displayName(rPath)}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                })(); });
+
+                const delBtn = actions.createEl('button', { cls: 'agent-rules-delete-btn' });
+                setIcon(delBtn, 'trash-2');
+                delBtn.setAttribute('aria-label', t('settings.rules.delete'));
+                delBtn.addEventListener('click', () => { void (async () => {
+                    await rulesLoader.deleteRule(rPath);
+                    this.plugin.settings.rulesToggles ??= {};
+                    delete this.plugin.settings.rulesToggles[rPath];
+                    await this.plugin.saveSettings();
+                    await refreshList();
+                })(); });
+
+                // Enable/disable toggle
+                this.plugin.settings.rulesToggles ??= {};
+                const isActive = this.plugin.settings.rulesToggles[rPath] !== false;
+                const toggleTd = row.createEl('td', { cls: 'agent-skill-toggle-cell' });
+                const toggleEl = toggleTd.createDiv({
+                    cls: `checkbox-container agent-rules-toggle${isActive ? ' is-enabled' : ''}`,
+                });
+                toggleEl.addEventListener('click', () => {
+                    this.plugin.settings.rulesToggles ??= {};
+                    const current = this.plugin.settings.rulesToggles[rPath] !== false;
+                    this.plugin.settings.rulesToggles[rPath] = !current;
+                    void this.plugin.saveSettings();
+                    toggleEl.toggleClass('is-enabled', !current);
+                });
+            }
+        };
+
+        createBtn.addEventListener('click', () => { void (async () => {
+            const name = nameInput.value.trim();
+            if (!name || !rulesLoader) return;
+            const template = `# ${name}\n\n`;
+            const rPath = await rulesLoader.createRule(name, template);
+            nameInput.value = '';
+            await refreshList();
+            new ContentEditorModal(this.app, t('settings.rules.editRule', { name }), template, (content) => {
+                return rulesLoader.writeFile(rPath, content);
+            }).open();
+        })(); });
+
+        void refreshList();
+    }
+
+}

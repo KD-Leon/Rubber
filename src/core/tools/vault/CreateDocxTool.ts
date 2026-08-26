@@ -1,0 +1,493 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+/**
+ * CreateDocxTool
+ *
+ * Creates a Word document (.docx) with structured sections, headings,
+ * paragraphs, bullet lists, numbered lists, and tables.
+ * Uses the 'docx' library for generation.
+ */
+
+import type * as DocxNs from 'docx';
+import { BaseTool } from '../BaseTool';
+import { resolveOutputPath } from './resolveOutputPath';
+import type { ToolDefinition, ToolExecutionContext } from '../types';
+import type ObsidianAgentPlugin from '../../../main';
+import { writeBinaryToVault } from './writeBinaryToVault';
+
+/* ------------------------------------------------------------------ */
+/*  Input interfaces                                                  */
+/* ------------------------------------------------------------------ */
+
+interface SectionInput {
+    heading?: string;
+    level?: number;
+    body?: string;
+    bullets?: string[];
+    numberedList?: string[];
+    table?: {
+        headers?: string[];
+        rows?: (string | number | null)[][];
+    };
+}
+
+interface ThemeInput {
+    primary_color?: string;
+    font_family?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Constants                                                         */
+/* ------------------------------------------------------------------ */
+
+const DEFAULT_FONT = 'Calibri';
+const DEFAULT_PRIMARY = '2B579A';
+type HeadingLevelType = (typeof DocxNs.HeadingLevel)[keyof typeof DocxNs.HeadingLevel];
+function buildHeadingLevelMap(docx: typeof DocxNs): Record<number, HeadingLevelType> {
+    return {
+        1: docx.HeadingLevel.HEADING_1,
+        2: docx.HeadingLevel.HEADING_2,
+        3: docx.HeadingLevel.HEADING_3,
+        4: docx.HeadingLevel.HEADING_4,
+        5: docx.HeadingLevel.HEADING_5,
+        6: docx.HeadingLevel.HEADING_6,
+    };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helper: resolve color                                             */
+/* ------------------------------------------------------------------ */
+
+function resolveHexColor(color?: string, fallback = DEFAULT_PRIMARY): string {
+    if (!color) return fallback;
+    const trimmed = color.trim().replace(/^#/, '');
+    if (/^[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed;
+    return fallback;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tool class                                                        */
+/* ------------------------------------------------------------------ */
+
+export class CreateDocxTool extends BaseTool<'create_docx'> {
+    readonly name = 'create_docx' as const;
+    readonly isWriteOperation = true;
+
+    constructor(plugin: ObsidianAgentPlugin) {
+        super(plugin);
+    }
+
+    getDefinition(): ToolDefinition {
+        return {
+            name: 'create_docx',
+            description:
+                'Create a Word document (.docx) with structured sections containing headings, paragraphs, ' +
+                'bullet lists, numbered lists, and tables. ' +
+                'The file format is handled automatically -- never use write_file or evaluate_expression for .docx files.',
+            input_schema: {
+                type: 'object',
+                properties: {
+                    output_path: {
+                        type: 'string',
+                        description:
+                            'Path for the document file (must end with .docx, e.g. "Documents/report.docx")',
+                    },
+                    sections: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                heading: {
+                                    type: 'string',
+                                    description: 'Section heading text',
+                                },
+                                level: {
+                                    type: 'number',
+                                    description: 'Heading level 1-6 (default: 1)',
+                                },
+                                body: {
+                                    type: 'string',
+                                    description: 'Body text (paragraphs separated by blank lines)',
+                                },
+                                bullets: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Bullet point list',
+                                },
+                                numberedList: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Numbered list items',
+                                },
+                                table: {
+                                    type: 'object',
+                                    properties: {
+                                        headers: {
+                                            type: 'array',
+                                            items: { type: 'string' },
+                                            description: 'Table column headers',
+                                        },
+                                        rows: {
+                                            type: 'array',
+                                            items: {
+                                                type: 'array',
+                                                items: {},
+                                            },
+                                            description: 'Table data rows (2D array)',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        description: 'Array of content sections (max 100)',
+                    },
+                    title: {
+                        type: 'string',
+                        description: 'Document title (displayed as cover heading and in metadata)',
+                    },
+                    theme: {
+                        type: 'object',
+                        properties: {
+                            primary_color: {
+                                type: 'string',
+                                description: 'Primary color as hex (e.g. "#2B579A"). Default: Word blue.',
+                            },
+                            font_family: {
+                                type: 'string',
+                                description: 'Font family (e.g. "Calibri", "Arial"). Default: Calibri.',
+                            },
+                        },
+                        description: 'Optional theme settings',
+                    },
+                },
+                required: ['output_path', 'sections'],
+            },
+        };
+    }
+
+    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+        const { callbacks } = context;
+        const outputPath = resolveOutputPath(this.plugin, ((input.output_path as string) ?? ''));
+        // Handle sections as array or as JSON string (LLMs sometimes stringify the array)
+        let rawSections: SectionInput[] = [];
+        if (Array.isArray(input.sections)) {
+            rawSections = input.sections as SectionInput[];
+        } else if (typeof input.sections === 'string') {
+            try {
+                const parsed = JSON.parse(input.sections);
+                if (Array.isArray(parsed)) rawSections = parsed as SectionInput[];
+            } catch { /* Invalid JSON -- fall through to empty */ }
+        }
+        const docTitle = ((input.title as string) ?? '').trim();
+        const theme = (input.theme as ThemeInput) ?? {};
+
+        // Validation
+        if (!outputPath) {
+            callbacks.pushToolResult(this.formatError(new Error('output_path is required')));
+            return;
+        }
+        if (!outputPath.endsWith('.docx')) {
+            callbacks.pushToolResult(this.formatError(new Error('output_path must end with .docx')));
+            return;
+        }
+        if (rawSections.length === 0) {
+            callbacks.pushToolResult(this.formatError(new Error('At least one section is required')));
+            return;
+        }
+
+        const sections = rawSections.slice(0, 100);
+        const primaryColor = resolveHexColor(theme.primary_color);
+        const fontFamily = theme.font_family?.trim() || DEFAULT_FONT;
+
+        const office = await this.plugin.bundleLoader?.loadOfficeBundleWithPrompt(context, 'create_docx');
+        if (!office) {
+            callbacks.pushToolResult(this.formatError(new Error(
+                'Office Document Support is not installed. ' +
+                'The user was asked to install it and declined (or the download failed). ' +
+                'Try again later or ask the user to install "Office Document Support" from Settings > Vault Operator > Optional Assets.'
+            )));
+            return;
+        }
+        const docx = office.docx;
+        // Only the symbols actually used in execute() are destructured here.
+        // buildTable() does its own destructuring of the table-specific
+        // exports (Table, TableRow, TableCell, WidthType, BorderStyle,
+        // ShadingType) so they do not need to live at this scope.
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, LevelFormat } = docx;
+        const headingLevelMap = buildHeadingLevelMap(docx);
+
+        try {
+            const children: (DocxNs.Paragraph | DocxNs.Table)[] = [];
+
+            // Title page
+            if (docTitle) {
+                children.push(
+                    new Paragraph({
+                        children: [
+                            new TextRun({
+                                text: docTitle,
+                                bold: true,
+                                size: 56,
+                                font: fontFamily,
+                                color: primaryColor,
+                            }),
+                        ],
+                        spacing: { after: 400 },
+                        alignment: AlignmentType.CENTER,
+                    }),
+                    new Paragraph({ spacing: { after: 200 } }),
+                );
+            }
+
+            // Build content sections
+            for (const section of sections) {
+                // Heading
+                if (section.heading) {
+                    const level = Math.min(Math.max(section.level ?? 1, 1), 6);
+                    children.push(
+                        new Paragraph({
+                            text: section.heading,
+                            heading: headingLevelMap[level] ?? HeadingLevel.HEADING_1,
+                            spacing: { before: 240, after: 120 },
+                        }),
+                    );
+                }
+
+                // Body text
+                if (section.body) {
+                    const paragraphs = section.body.split(/\n\n+/);
+                    for (const para of paragraphs) {
+                        if (para.trim().length === 0) continue;
+                        children.push(
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: para.trim(),
+                                        font: fontFamily,
+                                        size: 24,
+                                    }),
+                                ],
+                                spacing: { after: 160 },
+                            }),
+                        );
+                    }
+                }
+
+                // Bullet list
+                if (section.bullets && section.bullets.length > 0) {
+                    for (const bullet of section.bullets) {
+                        children.push(
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: bullet,
+                                        font: fontFamily,
+                                        size: 24,
+                                    }),
+                                ],
+                                bullet: { level: 0 },
+                                spacing: { after: 60 },
+                            }),
+                        );
+                    }
+                    children.push(new Paragraph({ spacing: { after: 120 } }));
+                }
+
+                // Numbered list
+                if (section.numberedList && section.numberedList.length > 0) {
+                    for (const item of section.numberedList) {
+                        children.push(
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: item,
+                                        font: fontFamily,
+                                        size: 24,
+                                    }),
+                                ],
+                                numbering: {
+                                    reference: 'default-numbering',
+                                    level: 0,
+                                },
+                                spacing: { after: 60 },
+                            }),
+                        );
+                    }
+                    children.push(new Paragraph({ spacing: { after: 120 } }));
+                }
+
+                // Table
+                if (section.table) {
+                    const table = this.buildTable(docx, section.table, primaryColor, fontFamily);
+                    if (table) {
+                        children.push(table);
+                        children.push(new Paragraph({ spacing: { after: 200 } }));
+                    }
+                }
+            }
+
+            // Build document
+            const doc = new Document({
+                creator: 'Vault Operator',
+                title: docTitle || undefined,
+                numbering: {
+                    config: [
+                        {
+                            reference: 'default-numbering',
+                            levels: [
+                                {
+                                    level: 0,
+                                    format: LevelFormat.DECIMAL,
+                                    text: '%1.',
+                                    alignment: AlignmentType.START,
+                                },
+                            ],
+                        },
+                    ],
+                },
+                sections: [
+                    {
+                        children,
+                    },
+                ],
+            });
+
+            // Generate binary
+            const buffer = await Packer.toBuffer(doc);
+            const arrayBuffer = buffer.buffer.slice(
+                buffer.byteOffset,
+                buffer.byteOffset + buffer.byteLength,
+            );
+
+            // Write to vault
+            const result = await writeBinaryToVault(
+                this.app.vault,
+                outputPath,
+                arrayBuffer,
+                '.docx',
+            );
+
+            const action = result.created ? 'Created' : 'Updated';
+            const sizeKB = Math.round(result.size / 1024);
+            callbacks.pushToolResult(
+                `${action} Word document: **${outputPath}**\n` +
+                `- ${sections.length} section${sections.length !== 1 ? 's' : ''}\n` +
+                (docTitle ? `- Title: "${docTitle}"\n` : '') +
+                `- Size: ${sizeKB} KB\n\n` +
+                `Download or open the file to view the document.`,
+            );
+            callbacks.log(`${action} DOCX: ${outputPath} (${sections.length} sections, ${sizeKB} KB)`);
+        } catch (error) {
+            callbacks.pushToolResult(this.formatError(error));
+            await callbacks.handleError('create_docx', error);
+        }
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Table builder                                                  */
+    /* -------------------------------------------------------------- */
+
+    private buildTable(
+        docx: typeof DocxNs,
+        tableInput: NonNullable<SectionInput['table']>,
+        primaryColor: string,
+        fontFamily: string,
+    ): DocxNs.Table | null {
+        const { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, ShadingType } = docx;
+        const allRows: DocxNs.TableRow[] = [];
+        const colCount = Math.max(
+            tableInput.headers?.length ?? 0,
+            tableInput.rows?.[0]?.length ?? 0,
+            1,
+        );
+
+        // Header row
+        if (tableInput.headers && tableInput.headers.length > 0) {
+            allRows.push(
+                new TableRow({
+                    tableHeader: true,
+                    children: tableInput.headers.map(h =>
+                        new TableCell({
+                            children: [
+                                new Paragraph({
+                                    children: [
+                                        new TextRun({
+                                            text: String(h),
+                                            bold: true,
+                                            font: fontFamily,
+                                            size: 22,
+                                            color: 'FFFFFF',
+                                        }),
+                                    ],
+                                    alignment: AlignmentType.CENTER,
+                                }),
+                            ],
+                            shading: {
+                                type: ShadingType.SOLID,
+                                color: primaryColor,
+                                fill: primaryColor,
+                            },
+                            width: {
+                                size: Math.floor(100 / colCount),
+                                type: WidthType.PERCENTAGE,
+                            },
+                        }),
+                    ),
+                }),
+            );
+        }
+
+        // Data rows
+        if (tableInput.rows) {
+            for (const row of tableInput.rows) {
+                const cells = row.map(cell =>
+                    new TableCell({
+                        children: [
+                            new Paragraph({
+                                children: [
+                                    new TextRun({
+                                        text: cell !== null && cell !== undefined ? String(cell) : '',
+                                        font: fontFamily,
+                                        size: 22,
+                                    }),
+                                ],
+                            }),
+                        ],
+                        width: {
+                            size: Math.floor(100 / colCount),
+                            type: WidthType.PERCENTAGE,
+                        },
+                    }),
+                );
+
+                // Pad if fewer cells than columns
+                while (cells.length < colCount) {
+                    cells.push(
+                        new TableCell({
+                            children: [new Paragraph({})],
+                            width: { size: Math.floor(100 / colCount), type: WidthType.PERCENTAGE },
+                        }),
+                    );
+                }
+
+                allRows.push(new TableRow({ children: cells }));
+            }
+        }
+
+        if (allRows.length === 0) return null;
+
+        return new Table({
+            rows: allRows,
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            borders: {
+                top: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
+                bottom: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
+                left: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
+                right: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
+                insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
+                insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' },
+            },
+        });
+    }
+}
+
+/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

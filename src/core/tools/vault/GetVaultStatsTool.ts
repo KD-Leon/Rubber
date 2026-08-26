@@ -1,0 +1,126 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+/**
+ * GetVaultStatsTool - Return a high-level overview of the vault
+ *
+ * Provides counts and structure overview without reading every file.
+ * Useful as a first step when the agent needs to understand vault scope.
+ */
+
+import { TFolder } from 'obsidian';
+import { isDeniedPath, keepVisible } from './denyZoneFilter';
+import { sanitizeDirectoryEntry } from '../BaseTool';
+import { BaseTool } from '../BaseTool';
+import type { ToolDefinition, ToolExecutionContext } from '../types';
+import type ObsidianAgentPlugin from '../../../main';
+
+export class GetVaultStatsTool extends BaseTool<'get_vault_stats'> {
+    readonly name = 'get_vault_stats' as const;
+    readonly isWriteOperation = false;
+
+    constructor(plugin: ObsidianAgentPlugin) {
+        super(plugin);
+    }
+
+    getDefinition(): ToolDefinition {
+        return {
+            name: 'get_vault_stats',
+            description:
+                'Get a high-level overview of the vault: total notes, folders, top-level structure, most used tags, and recently modified files. Use this as a first step to understand vault size and organization.',
+            input_schema: {
+                type: 'object',
+                properties: {},
+            },
+        };
+    }
+
+    async execute(_input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+        const { callbacks } = context;
+
+        try {
+            // AUDIT 2026-07-26 M-7: filtered at collection, so every number
+            // below counts only what the user allows the agent to see. This is
+            // also the frontmatter half of the finding: a tag used ONLY inside
+            // the deny zone used to show up in the top-15 list.
+            const allFiles = keepVisible(this.plugin, this.app.vault.getMarkdownFiles(), (f) => f.path);
+            const allFolders = keepVisible(
+                this.plugin,
+                this.app.vault.getAllLoadedFiles().filter((f) => f instanceof TFolder),
+                (f) => f.path,
+            );
+
+            // Top-level folders. Filter before the .map: the deny check needs
+            // the path, and `name` has already thrown it away.
+            const rootFolders = (this.app.vault.getRoot().children ?? [])
+                .filter((f) => f instanceof TFolder && !isDeniedPath(this.plugin, f.path))
+                .map((f) => f.name)
+                .sort();
+
+            // Tag frequency
+            const tagCounts: Record<string, number> = {};
+            for (const file of allFiles) {
+                const cache = this.app.metadataCache.getFileCache(file);
+                if (!cache) continue;
+
+                // Inline tags
+                cache.tags?.forEach((tc) => {
+                    const tag = tc.tag;
+                    tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
+                });
+
+                // Frontmatter tags
+                const fmTags = cache.frontmatter?.tags;
+                if (fmTags) {
+                    const arr = Array.isArray(fmTags) ? fmTags : [fmTags];
+                    arr.forEach((t: string) => {
+                        const tag = t.startsWith('#') ? t : `#${t}`;
+                        tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
+                    });
+                }
+            }
+
+            // Top 15 tags by frequency
+            const topTags = Object.entries(tagCounts)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 15)
+                // AUDIT 2026-07-26 M-6: tag names come from note frontmatter.
+                .map(([tag, count]) => `${sanitizeDirectoryEntry(String(tag), 80)} (${count})`);
+
+            // Recently modified (last 10)
+            const recentFiles = [...allFiles]
+                .sort((a, b) => b.stat.mtime - a.stat.mtime)
+                .slice(0, 10)
+                .map((f) => {
+                    const date = new Date(f.stat.mtime).toLocaleDateString();
+                    return `${sanitizeDirectoryEntry(f.path, 200)} (${date})`;
+                });
+
+            // AUDIT 2026-07-26 M-6: folder names, tag names and note paths are all
+            // vault bytes, and `<vault_stats>` was a hand-rolled wrapper with a raw
+            // body. The counts are tool-authored and stay outside the envelope.
+            const header = `Notes: ${allFiles.length}, folders: ${allFolders.length}, `
+                + `unique tags: ${Object.keys(tagCounts).length}`;
+            const lines = [
+                `Top-level folders:`,
+                ...(rootFolders.length > 0
+                    ? rootFolders.map((f) => `  ${sanitizeDirectoryEntry(f, 200)}/`)
+                    : ['  (vault root, no subfolders)']),
+                ``,
+                `Most used tags:`,
+                ...(topTags.length > 0 ? topTags.map((t) => `  ${t}`) : ['  (none)']),
+                ``,
+                `Recently modified:`,
+                ...recentFiles.map((f) => `  ${f}`),
+            ];
+
+            callbacks.pushToolResult(
+                `${header}\n\n${this.formatUntrustedContent('vault', lines.join('\n'), { region: 'vault-stats' })}`,
+            );
+            callbacks.log(`Vault stats: ${allFiles.length} notes, ${allFolders.length} folders`);
+        } catch (error) {
+            callbacks.pushToolResult(this.formatError(error));
+            await callbacks.handleError('get_vault_stats', error);
+        }
+    }
+}
+
+/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

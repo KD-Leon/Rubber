@@ -1,0 +1,157 @@
+/**
+ * Render a Settings UI block for one Optional Asset.
+ *
+ * Status display (installed / outdated / missing / error), Install /
+ * Re-install / Remove buttons, with sensible default behaviour. Callers can
+ * pass `onPostInstall` to wire a post-install side effect (e.g. reload a
+ * service that depends on the freshly installed bundle).
+ *
+ * Extracted from DebugTab's renderSourceAssetBlock so the same pattern can
+ * be reused for the office-bundle, pdfjs-bundle, and self-development
+ * Optional Assets without duplicating ~80 lines of UI plumbing.
+ */
+
+import { Notice, Setting } from 'obsidian';
+import type ObsidianAgentPlugin from '../../main';
+import type { AssetSpec } from '../../core/assets/OptionalAssetManager';
+import { OptionalAssetManager } from '../../core/assets/OptionalAssetManager';
+import { t } from '../../i18n';
+
+export interface OptionalAssetBlockOptions {
+    /** Plugin instance for OptionalAssetManager. */
+    plugin: ObsidianAgentPlugin;
+    /** Container element to append the block into. */
+    containerEl: HTMLElement;
+    /** Asset spec from one of the buildXxxSpec() factories. */
+    spec: AssetSpec;
+    /** Optional summary shown above the buttons (overrides spec.description). */
+    description?: string;
+    /** Status line shown when the asset is not installed. */
+    notInstalledStatus?: string;
+    /** Called after a successful install, before the status refreshes. */
+    onPostInstall?: () => Promise<void>;
+    /**
+     * Show an "Install from file" extra button next to the regular Install
+     * button. Useful in local plugin-dev workflows when the GitHub release
+     * has not been published yet.
+     */
+    allowInstallFromFile?: boolean;
+}
+
+export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void {
+    const { plugin, containerEl, spec, onPostInstall } = opts;
+    const manager = new OptionalAssetManager(plugin);
+    const description = opts.description ?? spec.description;
+    const notInstalledStatus = opts.notInstalledStatus ?? t('settings.optionalAssets.statusNotInstalled');
+
+    if (!spec.expectedSha256) {
+        new Setting(containerEl)
+            .setName(t('settings.optionalAssets.nameWithSize', { label: spec.label, sizeMb: spec.sizeMb }))
+            .setDesc(t('settings.optionalAssets.devBuildUnavailable', { description }));
+        return;
+    }
+
+    const setting = new Setting(containerEl)
+        .setName(t('settings.optionalAssets.nameWithSize', { label: spec.label, sizeMb: spec.sizeMb }))
+        .setDesc(t('settings.optionalAssets.storageDesc', { description }));
+
+    const statusEl = setting.descEl.createDiv({ cls: 'optional-asset-status' });
+    let installBtn: HTMLButtonElement | null = null;
+    let removeBtn: HTMLButtonElement | null = null;
+
+    const renderStatus = async (): Promise<void> => {
+        const snap = await manager.snapshot(spec);
+        statusEl.empty();
+        if (snap.status === 'installed') {
+            statusEl.setText(t('settings.optionalAssets.statusInstalled'));
+            statusEl.setAttr('data-status', 'installed');
+            if (installBtn) installBtn.setCssStyles({ display: 'none' });
+            if (removeBtn) removeBtn.setCssStyles({ display: '' });
+        } else if (snap.status === 'outdated') {
+            statusEl.setText(t('settings.optionalAssets.statusOutdated'));
+            statusEl.setAttr('data-status', 'outdated');
+            if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText(t('settings.optionalAssets.reinstall')); }
+            if (removeBtn) removeBtn.setCssStyles({ display: '' });
+        } else if (snap.status === 'error') {
+            statusEl.setText(t('settings.optionalAssets.statusError', { message: snap.errorMessage ?? t('settings.optionalAssets.errorUnknown') }));
+            statusEl.setAttr('data-status', 'error');
+            if (installBtn) installBtn.setCssStyles({ display: '' });
+            if (removeBtn) removeBtn.setCssStyles({ display: 'none' });
+        } else {
+            statusEl.setText(notInstalledStatus);
+            statusEl.setAttr('data-status', 'not-installed');
+            if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText(t('settings.optionalAssets.install')); }
+            if (removeBtn) removeBtn.setCssStyles({ display: 'none' });
+        }
+    };
+
+    // Self-Dev source ships in a separate release tag and is large enough
+    // that local-file installs are the recommended path. When
+    // `allowInstallFromFile` is set, render the local-file button as the
+    // primary action and put Re-install + Remove behind it. Other assets
+    // (office-bundle, pdfjs-bundle) keep Install (online) as primary.
+    if (opts.allowInstallFromFile) {
+        setting.addButton((btn) => {
+            btn.setButtonText(t('settings.optionalAssets.installFromFile'))
+                
+                .onClick(async () => {
+                    const { pickAndInstallAsset } = await import('./installFromFile');
+                    pickAndInstallAsset(manager, spec, async () => {
+                        if (onPostInstall) {
+                            await onPostInstall();
+                        }
+                        await renderStatus();
+                    });
+                });
+        });
+    }
+
+    setting.addButton((btn) => {
+        installBtn = btn.buttonEl;
+        btn.setButtonText(t('settings.optionalAssets.install'))
+
+            .onClick(async () => {
+                btn.setDisabled(true);
+                btn.setButtonText(t('settings.optionalAssets.downloading'));
+                try {
+                    await manager.install(spec);
+                    new Notice(t('notice.optionalAssets.installed', { label: spec.label }));
+                    if (onPostInstall) {
+                        await onPostInstall();
+                    }
+                } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    new Notice(t('notice.optionalAssets.installFailed', { error: msg }), 10_000);
+                } finally {
+                    btn.setDisabled(false);
+                    await renderStatus();
+                }
+            });
+        // When local-file install is primary, the online button drops the
+        // .mod-cta styling so it reads as the secondary action.
+        if (opts.allowInstallFromFile) {
+            btn.removeCta();
+        }
+    });
+
+    setting.addButton((btn) => {
+        removeBtn = btn.buttonEl;
+        btn.setButtonText(t('settings.shell.remove'))
+
+            .onClick(async () => {
+                btn.setDisabled(true);
+                try {
+                    await manager.remove(spec);
+                    new Notice(t('notice.optionalAssets.removed', { label: spec.label }));
+                } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    new Notice(t('notice.optionalAssets.removeFailed', { error: msg }), 10_000);
+                } finally {
+                    btn.setDisabled(false);
+                    await renderStatus();
+                }
+            });
+    });
+
+    void renderStatus();
+}

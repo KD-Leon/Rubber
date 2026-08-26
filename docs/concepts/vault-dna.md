@@ -1,0 +1,74 @@
+---
+title: Plugin Discovery
+description: How Vault Operator automatically discovers installed Obsidian plugins and makes them available to the agent.
+---
+
+# Plugin discovery
+
+Obsidian's plugin ecosystem is one of its strengths. Vault Operator can work with your installed plugins, but first it needs to know what's available. VaultDNA handles that automatically.
+
+## How scanning works
+
+```mermaid
+flowchart LR
+    S[Scan installed plugins] --> C[Classify by capabilities]
+    C --> G[Generate skill files]
+    G --> A[Available in agent prompt]
+```
+
+`VaultDNAScanner` (`src/core/skills/VaultDNAScanner.ts`) reads `app.plugins.manifests` on startup, which lists all installed plugins (both enabled and disabled). For each plugin, it extracts the name, version, and description, all registered commands, and whether the plugin is currently enabled.
+
+Commands are the important part. They're the primary way Obsidian plugins expose functionality, and the agent interacts with them via the `execute_command` tool.
+
+The scanner distinguishes between core plugins (shipped with Obsidian) and community plugins (installed from the community registry or manually). Core plugins have stable, well-documented command IDs. Community plugins vary widely in quality and naming conventions.
+
+## Classification
+
+Not every command is useful to an agent. The scanner filters out UI-only commands that don't make sense in a headless context: sidebar toggles, "show settings" dialogs, "focus panel" actions. The filtering uses pattern matching against prefixes like `toggle`, `show-`, `focus`, and suffixes like `-panel`, `-sidebar`, `-settings`.
+
+After filtering, each plugin is classified by how many agent-usable commands it has. A plugin like Dataview with many queryable commands gets a high classification. A plugin that only registers a "toggle sidebar" command is classified as UI-only. Plugins with zero usable commands are still recorded in the vault DNA, but they don't get skill files.
+
+## Skill file generation
+
+For each plugin with usable commands, the scanner generates a `SKILL.md` file under `{agent-folder}/data/skills/{plugin-id}/` (default agent folder is `.vault-operator/`). These skill files are Markdown documents that describe the plugin's capabilities in a format the agent can understand. They list available commands, describe what each one does, and provide usage hints.
+
+The generated skills are skeleton quality: structural information from the plugin manifest and commands, but no LLM-generated descriptions or usage examples. This is intentional. Generation runs entirely offline, with no network calls and no LLM involvement, so accuracy is limited to what the manifest provides.
+
+Core Obsidian plugins (daily notes, templates, canvas, etc.) get better treatment. The scanner includes a `CorePluginLibrary` with hand-written definitions for built-in plugins, so their skill files have more detail than manifest parsing alone produces.
+
+## Vault DNA persistence
+
+Scan results are persisted as `vault-dna.json` under `{agent-folder}/data/`. This avoids rescanning on every startup. The scanner polls for changes at a regular interval, comparing the current enabled plugins against its last known state. When you enable or disable a plugin, it detects the change and updates both the DNA file and the generated skill files.
+
+The polling interval is short enough that changes are picked up within seconds. If you install a new community plugin and enable it, the next conversation will already know about it.
+
+## Capability gap resolution
+
+Sometimes the agent hits a task it can't handle with built-in tools. `CapabilityGapResolver` (`src/core/skills/CapabilityGapResolver.ts`) searches the vault DNA for plugins that might help.
+
+When the agent calls the `resolve_capability_gap` tool with a description like "I need to create a Kanban board", the resolver extracts keywords, scans the DNA for matching plugins, and returns either a match (with the relevant commands) or a suggestion to install a community plugin.
+
+This is best-effort. It works well for plugins whose names and command descriptions clearly indicate their purpose. It won't find a match if the plugin's metadata is vague, or if the capability requires a plugin that isn't installed.
+
+## Runtime skill metadata
+
+Beyond the persisted skill files, the scanner maintains an in-memory list of `PluginSkillMeta` objects. These contain the plugin ID, classification, and command list in a structured format for injection into the system prompt. The agent knows at conversation start which plugins are available and what they can do, without reading every skill file.
+
+## What works and what doesn't
+
+Plugin discovery works best for plugins that expose their functionality through commands with descriptive names. The Obsidian Tasks plugin, for example, registers commands like `tasks:toggle-done` and `tasks:create-or-edit` that clearly communicate what they do.
+
+It works less well for plugins that operate through UI interactions rather than commands. A plugin that adds a custom view type but doesn't register any commands is invisible to the agent. The scanner records its existence, but the agent can't do anything with it.
+
+Plugins that require configuration (API keys, file paths, specific settings) before they work are another challenge. The scanner can detect the plugin and its commands, but it can't know whether the plugin is properly configured. The agent might try to use a command and get an error because the plugin hasn't been set up yet.
+
+## Relationship to the skill system
+
+Plugin skills are one category in a broader skill system. The Skills tab in Settings groups skills into four buckets:
+
+- **Plugin** (generated by VaultDNAScanner, stored at `{agent-folder}/data/skills/{plugin-id}/`, regenerated automatically when you enable or disable plugins).
+- **Built-in** (bundled with the plugin, materialized to disk by `BuiltinSkillMaterializer` on startup, refreshed with releases).
+- **Agent** (created via the skill-creator workflow, carry `source: agent` or `source: learned` in frontmatter, survive builtin refreshes).
+- **User** (manually written, copied, or imported by you, stored under `{agent-folder}/data/skills/{name}/`, persist until you delete them).
+
+All buckets are Markdown files with the same structure. The agent doesn't distinguish between them at runtime. They're all loaded into the system prompt based on relevance to the current conversation. The bucket labels exist for management purposes; runtime behaviour stays uniform across all sources.

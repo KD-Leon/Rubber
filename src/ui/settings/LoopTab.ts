@@ -1,0 +1,152 @@
+import { App, Setting, setIcon } from 'obsidian';
+import type ObsidianAgentPlugin from '../../main';
+import { t } from '../../i18n';
+import { DEFAULT_CONDENSING_ENABLED } from '../../core/condensingDefaults';
+import { addInfoButton, addSectionHeading, addSliderInput } from './utils';
+
+export class LoopTab {
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+
+    private buildIntroSection(containerEl: HTMLElement): void {
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(infoIcon, 'lightbulb');
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
+        infoText.createEl('strong', { text: t('settings.loop.introTitle') });
+        infoText.createDiv({ text: t('settings.loop.introDesc') });
+    }
+
+    private section(containerEl: HTMLElement, headingKey: string, descKey: string): void {
+        addSectionHeading(containerEl, t(headingKey), { body: t(descKey) });
+    }
+
+    build(containerEl: HTMLElement): void {
+        this.buildIntroSection(containerEl);
+
+        // ── Limits & retries ─────────────────────────────────────────────
+        this.section(containerEl, 'settings.loop.headingLoop', 'settings.loop.sectionLoopDesc');
+
+        const errorLimitSetting = new Setting(containerEl)
+            .setName(t('settings.loop.errorLimit'))
+            .setDesc(t('settings.loop.errorLimitDesc'));
+        addSliderInput(errorLimitSetting, {
+            min: 0, max: 10, step: 1,
+            value: this.plugin.settings.advancedApi.consecutiveMistakeLimit ?? 3,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.consecutiveMistakeLimit = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
+        const rateLimitSetting = new Setting(containerEl)
+            .setName(t('settings.loop.rateLimit'))
+            .setDesc(t('settings.loop.rateLimitDesc'));
+        addSliderInput(rateLimitSetting, {
+            min: 0, max: 3000, step: 100,
+            value: this.plugin.settings.advancedApi.rateLimitMs ?? 0,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.rateLimitMs = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
+        // FEAT-30-07: Approval timeout lebt jetzt bei den Permissions
+        // (Agent behaviour > Auto-approve), er gehoert zum Approval-System.
+
+        const maxIterSetting = new Setting(containerEl)
+            .setName(t('settings.loop.maxIterations'))
+            .setDesc(t('settings.loop.maxIterationsDesc'));
+        addInfoButton(maxIterSetting, t('settings.loop.maxIterations'), t('settings.loop.maxIterationsInfo'));
+        addSliderInput(maxIterSetting, {
+            min: 5, max: 50, step: 5,
+            value: this.plugin.settings.advancedApi.maxIterations ?? 25,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.maxIterations = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
+        const maxDepthSetting = new Setting(containerEl)
+            .setName(t('settings.loop.maxSubtaskDepth'))
+            .setDesc(t('settings.loop.maxSubtaskDepthDesc'));
+        addInfoButton(maxDepthSetting, t('settings.loop.maxSubtaskDepth'), t('settings.loop.maxSubtaskDepthInfo'));
+        addSliderInput(maxDepthSetting, {
+            min: 1, max: 3, step: 1,
+            value: this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.maxSubtaskDepth = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
+        // ── Auto-summarise ──────────────────────────────────────────────
+        this.section(containerEl, 'settings.loop.headingCondensing', 'settings.loop.sectionCondensingDesc');
+
+        const condensingSetting = new Setting(containerEl)
+            .setName(t('settings.loop.enableCondensing'))
+            .setDesc(t('settings.loop.enableCondensingDesc'));
+        condensingSetting.addToggle((c) =>
+            c.setValue(this.plugin.settings.advancedApi.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED).onChange(async (v) => {
+                this.plugin.settings.advancedApi.condensingEnabled = v;
+                await this.plugin.saveSettings();
+                thresholdSetting.settingEl.classList.toggle('agent-u-hidden', !v);
+            }),
+        );
+
+        const thresholdSetting = new Setting(containerEl)
+            .setName(t('settings.loop.condensingThreshold'))
+            .setDesc(t('settings.loop.condensingThresholdDesc'));
+        addSliderInput(thresholdSetting, {
+            min: 50, max: 95, step: 5,
+            value: this.plugin.settings.advancedApi.condensingThreshold ?? 80,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.condensingThreshold = v;
+                await this.plugin.saveSettings();
+            },
+        });
+        thresholdSetting.settingEl.classList.toggle('agent-u-hidden',
+            !(this.plugin.settings.advancedApi.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED));
+
+        // ── Power steering ──────────────────────────────────────────────
+        this.section(containerEl, 'settings.loop.headingPowerSteering', 'settings.loop.sectionPowerSteeringDesc');
+
+        const powerSteeringSetting = new Setting(containerEl)
+            .setName(t('settings.loop.powerSteeringFreq'))
+            .setDesc(t('settings.loop.powerSteeringFreqDesc'));
+        addSliderInput(powerSteeringSetting, {
+            min: 0, max: 10, step: 1,
+            value: this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.powerSteeringFrequency = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
+        // ── Task routing ────────────────────────────────────────────────
+        this.section(containerEl, 'settings.loop.headingHelperModel', 'settings.loop.sectionRoutingDesc');
+
+        const routerSetting = new Setting(containerEl)
+            .setName(t('settings.loop.autoTaskRouterName'))
+            .setDesc(t('settings.loop.autoTaskRouterDesc'));
+        routerSetting.addToggle((toggle) =>
+            toggle
+                .setValue(this.plugin.settings.autoTaskRouter?.enabled ?? true)
+                .onChange(async (v) => {
+                    this.plugin.settings.autoTaskRouter = { enabled: v };
+                    await this.plugin.saveSettings();
+                }),
+        );
+
+        const leanPromptSetting = new Setting(containerEl)
+            .setName(t('settings.loop.leanSystemPromptName'))
+            .setDesc(t('settings.loop.leanSystemPromptDesc'));
+        leanPromptSetting.addToggle((toggle) =>
+            toggle
+                .setValue(this.plugin.settings.leanSystemPrompt ?? false)
+                .onChange(async (v) => {
+                    this.plugin.settings.leanSystemPrompt = v;
+                    await this.plugin.saveSettings();
+                }),
+        );
+    }
+}

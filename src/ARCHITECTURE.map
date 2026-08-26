@@ -1,0 +1,412 @@
+# Architecture Map
+#
+# Two sections in one file:
+#   1. CONCEPTS: concept -> entry-point file -> ADR -> how-to-extend
+#   2. ADR CATALOG: ADR-NNN -> topic -> title (overview of all decisions)
+#
+# Single-call lookup: `grep "ADR-79" src/ARCHITECTURE.map` returns
+# both the concept rows that reference ADR-79 AND the catalog row
+# with its title. `grep "<concept>" src/ARCHITECTURE.map` finds the
+# entry-point file and the relevant ADR number.
+#
+# Status, phase, last-change live in the backlog row, not here.
+# Run `grep "ADR-NNN" _devprocess/context/BACKLOG.md` for status.
+#
+# Format Section 1: `concept | entry-point | adr | how-to-extend`
+# Format Section 2: `ADR-NNN | topic | title`
+# Columns are separated by ` | `. Lines starting with `#` are comments.
+
+# =====================================================================
+# SECTION 1: CONCEPTS
+# =====================================================================
+
+# CORE / AGENT LIFECYCLE (src/core/)
+agent-task                | src/core/AgentTask.ts                                 | ADR-01          | new tool: register in ToolRegistry, add ToolExecutionContext field
+tool-execution            | src/core/tool-execution/ToolExecutionPipeline.ts      | ADR-01          | new step: insert in pipeline order, see JSDoc header
+tool-registry             | src/core/tools/ToolRegistry.ts                        | ADR-01, ADR-16 | new tool: add file in src/core/tools/<name>/, register in ToolRegistry
+fast-path                 | src/core/FastPathExecutor.ts                          | ADR-61          | new recipe pattern: extend planner heuristics in FastPathExecutor
+mode-service              | src/core/modes/ModeService.ts                         | ADR-04          | new mode: add to builtinModes.ts plus tool-group map
+modes-builtin             | src/core/modes/builtinModes.ts                        | ADR-04          | new tool group: add entry to TOOL_GROUP_MAP
+context-condensing        | src/core/AgentTask.ts                                 | ADR-12          | condenseHistory(): keep-first-last + LLM-summarize-middle; tune via condensingThreshold setting
+microcompaction           | src/core/context/MicroCompactor.ts                    | ADR-12          | prune old tool_result contents to skeletons at turn boundaries; called from AgentTask.microcompact()
+power-steering            | src/core/AgentTask.ts                                 | ADR-06          | new injection point: extend powerSteeringFrequency switch
+checkpoint                | src/core/checkpoints/GitCheckpointService.ts          | ADR-02          | new checkpoint trigger: extend Pipeline step 4 hooks
+
+# MEMORY V2 STACK (src/core/memory/, src/core/knowledge/)
+knowledge-db              | src/core/knowledge/KnowledgeDB.ts                     | ADR-79, ADR-136 | new table: add migration in ensureSchema(), add typed methods. vectors.domain Diskriminator (ADR-136), Layer-Access via Helper (ADR-137)
+knowledge-vector-store    | src/core/knowledge/VectorStore.ts                     | ADR-137         | new domain: add to KNOWLEDGE_DOMAINS in knowledgeDomains.ts, add typed find/insert methods on VectorStore, ESLint guards direct vectors-table access
+memory-db                 | src/core/knowledge/MemoryDB.ts                        | ADR-77          | new collection: add migration plus typed methods
+fact-store                | src/core/memory/FactStore.ts                          | ADR-77, ADR-80 | new fact source: implement Persistence pattern
+edge-store                | src/core/memory/EdgeStore.ts                          | ADR-77, ADR-80 | new edge type: extend EdgeKind union plus types
+fact-integrator           | src/core/memory/FactIntegrator.ts                    | ADR-77, ADR-86 | new integration source: extend integrate() switch
+single-call-extractor     | src/core/memory/SingleCallExtractor.ts                | ADR-83          | new prompt section: extend buildPrompt schema
+memory-atomizer           | src/core/memory/MemoryAtomizer.ts                     | ADR-76          | new atom type: extend AtomKind union
+memory-retriever          | src/core/memory/MemoryRetriever.ts                   | ADR-77, ADR-87 | new source pipeline: extend retrieve() pipeline list
+ontology-store            | src/core/knowledge/OntologyStore.ts                   | ADR-82          | new tag heuristic: extend inferTopic() rules
+implicit-connection       | src/core/knowledge/ImplicitConnectionService.ts       | ADR-77          | new edge inference: extend computeAll() rule set
+vector-store              | src/core/knowledge/VectorStore.ts                     | ADR-79          | new collection scope: extend buildScope() switch
+
+# MEMORY TOOLS (Tool surface for the Memory v2 stack)
+memory-tools              | src/core/tools/memory/                                | ADR-77, ADR-84  | new memory tool: register in ToolRegistry; tools: MarkForMemory, RecallMemory, SearchHistory, UpdateSoul
+
+# SEMANTIC INDEX
+semantic-index            | src/core/semantic/SemanticIndexService.ts             | ADR-79          | new index target: extend index lifecycle hooks
+embedding-service         | src/core/memory/EmbeddingService.ts                   | ADR-77          | new provider: implement EmbeddingProvider interface
+
+# MODEL ROUTING (EPIC-26 / Advisor-Pattern)
+model-tier-classifier     | src/core/routing/ModelTierClassifier.ts               | ADR-121         | new model family: extend FLAGSHIP/MID/FAST_PATTERNS regex tables
+model-discovery           | src/core/routing/ModelDiscoveryService.ts             | ADR-121, ADR-122 | new provider type: ensure RawDiscoveredModel covers its fields and a fetcher wires it in main.ts
+advisor-pattern           | src/core/tools/agent/ConsultFlagshipTool.ts           | ADR-120         | adjust per-task budget or schema field-limits in this file; profile lives in src/core/agent/subagent-profiles.ts
+subagent-profiles         | src/core/agent/subagent-profiles.ts                   | ADR-113, ADR-120 | add new profile: append SubagentProfile to PROFILES; set tierOverride for tier pinning, maxOutputTokens for hard cap
+tier-resolution           | src/main.ts                                           | ADR-115, ADR-120, ADR-122 | extend getTierModel / getAdvisorModel resolution chain; tierOverrides wins over tierMapping
+
+# AI PROVIDERS
+api-handler               | src/api/index.ts                                      | ADR-11          | new provider: implement ApiHandler, register in resolveProvider()
+anthropic                 | src/api/providers/anthropic.ts                        | ADR-11, ADR-62, ADR-111 | extend cache_control or model preset
+openai                    | src/api/providers/openai.ts                           | ADR-11, ADR-111 | extend streaming, tool-call, embedding flow; cached_tokens via cache-capability lookup
+chatgpt-oauth             | src/api/providers/chatgpt-oauth.ts                    | ADR-88, ADR-89 | extend OAuth lifecycle in ChatGptOAuthService
+github-copilot            | src/api/providers/github-copilot.ts                   | ADR-37, ADR-43 | extend Copilot completion or model resolution
+bedrock                   | src/api/providers/bedrock.ts                          | ADR-11, ADR-111 | extend region or model resolver; set cachePoint ContentBlock when cache-capability says bedrock-cachepoint
+openrouter                | src/api/providers/openai.ts                           | ADR-11          | OpenRouter has no dedicated provider class; OpenAI adapter handles config.type==='openrouter' (cache deferred per capabilities.ts)
+cache-capability          | src/api/capabilities.ts                               | ADR-111         | new provider/model entry: extend table; UI and provider read via getCacheCapability()
+kv-cache-prompt           | src/core/systemPrompt.ts                              | ADR-62          | stable sections before CACHE_BREAKPOINT_MARKER, volatile tail after; providers split via splitSystemPromptAtCacheBreakpoint and mark only the prefix
+
+# AUTH
+chatgpt-oauth-auth        | src/core/auth/ChatGptOAuthService.ts                  | ADR-88, ADR-89 | extend PKCE or token-refresh flow
+copilot-auth              | src/core/security/GitHubCopilotAuthService.ts         | ADR-37          | extend session-refresh or device-flow
+kilo-auth                 | src/core/security/KiloAuthService.ts                  | ADR-19          | extend auth flow or storage encryption
+safe-storage              | src/core/security/SafeStorageService.ts               | ADR-19          | new encrypted-key path: extend WRITABLE_KEYS
+
+# UI
+sidebar                   | src/ui/AgentSidebarView.ts                            | -                | new sidebar action: extend command map and renderer
+modals                    | src/ui/modals/                                        | -                | new modal: extend modal registry; FirstRunWizard, MemoryV2Upgrade, MemoryViewer, PluginPatch, Prompt, SoakReport, VaultHealthRepair
+vault-health repair plan   | src/core/knowledge/vaultHealthRepairPlan.ts           | ADR-165, ADR-166 | pure plan/cap/outcome logic; extend here, the modal stays thin
+view-type constants | src/ui/viewTypes.ts | - | Neue View-Types hier ergaenzen; nie aus View-Klassen importieren (zieht Obsidian-Laufzeitklassen in Test-Graphen, IMP-19-01-03)
+diff-review               | src/ui/edit-review/EditReviewPanel.ts                             | -                | new diff layout: extend renderer plus toolbar
+model-config              | src/ui/settings/ModelConfigModal.ts                   | -                | new model preset: extend MODEL_REGISTRY plus defaults
+mcp-tab                   | src/ui/settings/McpTab.ts                             | ADR-05          | new MCP entry: extend tab renderer
+memory-tab                | src/ui/settings/MemoryTab.ts                          | ADR-77          | new memory control: extend renderer plus settings.ts
+modes-tab                 | src/ui/settings/ModesTab.ts                           | ADR-04          | new mode UI: extend renderer
+embeddings-tab            | src/ui/settings/EmbeddingsTab.ts                      | ADR-79          | new embedding source UI: extend renderer
+backup-tab                | src/ui/settings/BackupTab.ts                          | ADR-79          | new backup target: extend BackupService and renderer
+tool-picker               | src/ui/sidebar/ToolPickerPopover.ts                   | ADR-16          | new tool category: extend popover groups
+popover-shell             | src/ui/sidebar/popoverShell.ts                        | ADR-160         | new popover: positionPopover + PopoverDismisser, never hand-roll dismiss listeners
+ui-refresh-hub            | src/core/events/RefreshHub.ts                         | ADR-160         | cross-surface chip refresh: notify() at write sites, subscribe() while mounted
+onboarding                | src/ui/sidebar/OnboardingFlow.ts                      | -                | new onboarding step: extend step list
+
+# MCP
+mcp-bridge                | src/mcp/McpBridge.ts                                  | ADR-05, ADR-81 | new transport: implement McpTransport interface
+mcp-tools                 | src/mcp/tools/index.ts                                | ADR-73          | new tool integration: extend tool registry mapping
+relay-client              | src/mcp/RelayClient.ts                                | ADR-55          | extend relay protocol or auth path
+mcp-oauth                 | src/core/mcp/McpOAuthProvider.ts                      | ADR-154, ADR-155, ADR-156 | new OAuth connector: add a catalog entry with its authClass; engine unchanged
+mcp-connector-catalog     | src/core/mcp/connectorCatalog.ts                      | ADR-156         | new connector: add a catalog entry (name, url, transport, authClass, scopes)
+mcp-registry-discovery    | src/core/mcp/registryDiscovery.ts                     | ADR-156         | registry search client (official MCP registry /v0.1): adjust filters/mapping here
+
+# SANDBOX
+sandbox                   | src/core/sandbox/SandboxBridge.ts                     | -                | new sandbox executor: implement SandboxExecutor interface
+iframe-sandbox            | src/core/sandbox/IframeSandboxExecutor.ts             | -                | the only sandbox backend since SBX-1 (Node vm/ProcessSandboxExecutor removed)
+esbuild-wasm              | src/core/sandbox/EsbuildWasmManager.ts                | -                | extend bundle source resolution
+
+# OFFICE / DOCUMENT GENERATION
+office-index              | src/core/office/index.ts                              | ADR-48          | new generator: implement OfficeGenerator and register
+document-parsers          | src/core/document-parsers/                            | ADR-25          | new format: implement DocumentParser interface
+document-parser-formats   | src/core/document-parsers/parsers/                    | ADR-23, ADR-24, ADR-25 | format-specific parsers: CsvParser, DocxParser, PdfParser, PptxParser, XlsxParser plus ooxmlHelpers
+
+# INGEST PIPELINE (EPIC-19 Knowledge Maintenance)
+ingest-deep               | src/core/ingest/DeepIngestPipeline.ts                 | ADR-66          | new ingest stage: extend pipeline phases (extract -> classify -> integrate)
+ingest-trigger            | src/core/ingest/AutoTriggerObserver.ts                | ADR-102         | new vault.on event: extend trigger detection table; cooldown lives in IngestTriageLogStore
+ingest-session            | src/core/ingest/IngestSessionStore.ts                 | ADR-100         | dialog-state schema: extend ingest_session table migration
+ingest-frontmatter        | src/core/ingest/FrontmatterIndexer.ts                 | ADR-66          | new metadata field: extend FrontmatterWriter plus BackfillJob
+
+# PROMPT SECTIONS (modular system prompt, ADR-08)
+prompt-sections           | src/core/prompts/sections/index.ts                    | ADR-08, ADR-62  | new section: add file under sections/, register in index, decide stable-prefix vs volatile-tail
+prompt-cost-aware         | src/core/prompts/sections/cost-aware/index.ts         | ADR-90          | cost-aware steering: antiOverthinking, budgetAwareness, errorRecovery, planFirst, stopCondition, subAgentGating, toolTiers
+
+# STORAGE (ADR-20 Global Storage)
+global-file-service       | src/core/storage/GlobalFileService.ts                 | ADR-20          | new sync target: extend SyncBridge plus VaultDataFileAdapter
+global-settings-service   | src/core/storage/GlobalSettingsService.ts             | ADR-20, ADR-72  | new settings key: extend types; honour configurable agent-storage root
+global-migration-service  | src/core/storage/GlobalMigrationService.ts            | ADR-20, ADR-72  | new migration version: append to ordered migrations list
+
+# TASK EXTRACTION (ADR-26/27/28)
+task-extractor            | src/core/tasks/TaskExtractor.ts                       | ADR-26          | new extraction trigger: extend post-write hook list
+task-note-creator         | src/core/tasks/TaskNoteCreator.ts                     | ADR-27, ADR-28  | new frontmatter field: extend schema; optional plugin integration via TaskNotesAdapter
+
+# UTILITIES (cross-cutting)
+agent-folder              | src/core/utils/agentFolderService.ts                  | ADR-72          | new agent-folder consumer: read via agentFolderService.getRoot()
+safe-regex                | src/core/utils/safeRegex.ts                           | -                | new regex with timeout: route through safeExec to avoid ReDoS
+atomic-adapter-write      | src/core/utils/atomicAdapterWrite.ts                  | -                | new non-indexed (dot-path) adapter write: route through atomicAdapterWrite(Binary), never raw adapter.write (FIX-01-07-04)
+
+# TYPES / GLOBAL DEFINITIONS (src/types/)
+settings                  | src/types/settings.ts                                 | ADR-115, ADR-120, ADR-122, ADR-123 | new settings key: extend Settings interface; respect providerConfigs[] tierMapping schema
+model-registry            | src/types/model-registry.ts                           | ADR-115, ADR-120, ADR-121 | new model output ceiling or budget helper: extend normalizeModelId / getModelOutputCeiling / resolveOutputBudget
+
+# SKILLS / VAULT DNA / MASTERY
+vault-dna                 | src/core/skills/VaultDNAScanner.ts                    | ADR-14, ADR-124 | new heuristic: extend scanner rule set; FEAT-29-02 writes Anthropic folder/SKILL.md when _layoutMigrationStatus=complete, legacy .skill.md otherwise; FEAT-29-03 polling 2s + workspace.layout-change event hook via triggerImmediateSync
+probe-plugin              | src/core/tools/agent/ProbePluginTool.ts               | ADR-124         | new probe heuristic: extend reflectApiMethods filter; tool returns live commands+api for a plugin id (FEAT-29-03)
+run-skill-script          | src/core/tools/agent/RunSkillScriptTool.ts            | ADR-126         | generic executor for skills/{name}/scripts/*.js -- replaces code_modules / custom_*-tool pattern. Bundle cache: src/core/sandbox/RunSkillScriptCache.ts (FEAT-29-06)
+skill-translator          | bundled-skills/skill-translator/SKILL.md              | ADR-127         | Python-to-JavaScript skill translator. Dry-run pass + mapping table at references/mapping.json. Dry-run + translate scripts under scripts/. Built-in tool reroute for binary formats (PDF/DOCX/PPTX/XLSX). User-modal at src/ui/modals/PartialTranslationModal.ts before write on partial verdict. TaskRouter pattern: COMPLEX_SKILL_TRANSLATION_RE escalates to flagship (FEAT-29-08)
+backup-export-tool        | src/core/backup/                                      | -                | Selective ZIP backup of plugin state. UI: src/ui/settings/BackupTab.ts (manual export/import + auto-daily toggle). Pure logic: BackupExportService (collect/buildZip/unpackZip/SHA-256 manifest), BackupSecretFilter (recursive secret stripping), ImportConflictResolver (overwrite/skip/per-item), AutoBackupScheduler (24h gate + retention), AutoBackupRunner (orchestrator). Auto-daily backups land in .vault-operator/cache/backups/ with vault-operator-auto-{ISO}.zip pattern, always secret-stripped (FEAT-29-12)
+plugin-api-allowlist      | src/core/tools/agent/pluginApiAllowlist.ts            | -                | Built-in Tier-1 allowlist with isWrite flags. Tier-2 (dynamically discovered by VaultDNAScanner) starts as isWrite=true. FEAT-29-07: src/core/tools/agent/pluginApiAdaptive.ts adds per-plugin timeout overrides (resolveTimeoutMs) + auto-promotion after N approvals (recordApprovalAndMaybePromote, isWrite-heuristic classifyMethodIsWrite for get/list/find/query/... prefixes). ToolExecutionPipeline.maybeAutoPromotePluginApi hooks the approval flow.
+self-authored-skills      | src/core/skills/SelfAuthoredSkillLoader.ts            | ADR-09, ADR-75 | new skill format: extend SKILL.md parser
+core-plugin-library       | src/core/skills/CorePluginLibrary.ts                  | ADR-14          | new core skill: add metadata entry plus skill file
+mastery                   | src/core/mastery/RecipePromotionService.ts            | ADR-17, ADR-58 | new promotion rule: extend RecipePromotionService heuristics (embedding-based intent matching)
+quality-gates             | src/core/quality-gates/index.ts                       | -                | new quality gate: implement QualityGate interface
+
+# OBSERVABILITY
+observability             | src/core/observability/                               | -                | new event class: extend ObservabilityEvent union
+
+# PRICING / COST
+pricing                   | src/core/pricing/ModelPricing.ts                      | ADR-90          | new model price: extend MODEL_PRICING table
+
+# CONFIG / GOVERNANCE
+config-store              | src/core/config/CodeConfigParser.ts                   | -                | new config knob: extend schema plus validators
+governance                | src/core/governance/                                  | ADR-05, ADR-10 | new approval rule: extend GovernanceService
+ignore-service            | src/core/governance/IgnoreService.ts                  | ADR-91          | new ignore source: extend ignore-file resolver
+update-settings-tool      | src/core/tools/agent/UpdateSettingsTool.ts            | -                | new settable path: extend WRITABLE_PATHS plus typings
+configure-model-tool      | src/core/tools/agent/ConfigureModelTool.ts            | -                | new model knob: extend handler plus settings types
+
+# VAULT TOOLS (read / vault / edit groups, 40+ files)
+vault-tools               | src/core/tools/vault/                                 | ADR-01, ADR-16  | new vault tool: file under tools/vault/, register in ToolRegistry, add to TOOL_GROUP_MAP (read/vault/edit), add ToolMeta description
+vault-create-office       | src/core/tools/vault/CreatePptxTool.ts                | ADR-48          | sibling generators: CreateDocxTool, CreateXlsxTool, CreateDrawioTool, CreateExcalidrawTool; gate via constrained-LLM plan_presentation pattern
+semantic-search-tool      | src/core/tools/vault/SemanticSearchTool.ts            | ADR-15          | semantic + BM25 hybrid; extend retriever pipeline in SemanticIndexService
+
+# GENERATED ASSETS (build-time; do not hand-edit)
+generated-assets          | src/_generated/                                       | -                | written by build (esbuild plugin): bundled-skills, bundled-templates, bundled-wasm, bundled-workers, asset-bundle-hashes, source-hash. Source-of-truth lives in scripts/build-* generators.
+
+# PLUGIN ENTRY
+plugin-entry              | src/main.ts                                           | -                | wiring: register service and tool in onload()
+
+# INLINE EDITOR AI (EPIC-33, planned in /coding)
+# Concept rows below mark planned entry-points. Files exist after /coding implements them.
+# JSDoc header per file is the source of truth for current paths. See ADRs ADR-138..144 for design.
+inline-trigger-resolver   | src/core/inline/InlineTriggerResolver.ts            | ADR-138         | new action: register in InlineActionRegistry, add Floating-Menu entry plus Hotkey via Settings
+inline-floating-menu      | src/core/inline/InlineFloatingMenu.ts                  | ADR-138         | new action entry: register in InlineActionRegistry, set output_mode hint
+inline-diff-renderer      | src/core/inline/diff/InlineDiffEngine.ts                  | ADR-139         | new diff algorithm: extend the engine; rendering lives in CodeMirrorDiffAdapter
+inline-diff-state         | src/core/inline/diff/CodeMirrorDiffAdapter.ts           | ADR-139         | extend hunk map shape: keep RangeSet.map(tr.changes) invariant
+inline-lookup-rag         | src/core/inline/lookup/VaultRagPipeline.ts            | ADR-142         | new RAG variant: extend confidence filter or augmenter, reuse VectorStore.findNoteVectors
+inline-chat-block         | src/core/inline/chat/mount/CodeMirrorBlockMount.ts       | ADR-143         | new mount variant: extend InlineChatMountAdapter, block widget reserves its own layout line
+inline-settings-snapshot  | src/core/inline/inlineSettings.ts | ADR-140      | new snapshot field: add to settings cache invalidation, propagate through Per-Action-Pin
+agent-task-runner         | src/core/agent/AgentTaskRunner.ts                     | ADR-138         | new caller site: provide ToolCallbacks, AgentTaskRunConfig, call runner instead of new AgentTask
+
+# Parallel chat sessions (EPIC-55, concept rows added with /coding once code lands)
+parallel-chat-session     | src/ui/AgentSidebarView.ts                            | ADR-169, ADR-170 | new per-session state: own it on the view/run, not a plugin global; register cross-cutting actions against the active (last-focused) leaf, not leaves[0]
+active-chat-leaf-resolver | src/ui/sidebar/resolveActiveChatLeaf.ts               | ADR-169         | pure resolver every vault-wide action routes through; plugin tracks lastActiveChatLeaf via active-leaf-change, resolveActiveSidebarLeaf() in main.ts wraps it
+run-identity-persistence  | src/core/agent/InflightStore.ts                       | ADR-171         | new shared-store write: route through the serialized atomic writer (tmp+rename); run ids must stay collision-free and globally unique
+
+# =====================================================================
+# SECTION 2: ADR CATALOG
+# =====================================================================
+#
+# All architecture decisions, in numerical order.
+# Format: ADR-NNN | topic | title
+# For status (Accepted, Superseded, Proposed, ...): grep the backlog.
+# For full content: open the ADR file under _devprocess/architecture/.
+
+ADR-01 | core                   | Zentrale ToolExecutionPipeline fuer alle Tool-Aufrufe
+ADR-02 | core                   | isomorphic-git fuer Checkpoints (Shadow Repository)
+ADR-03 | core                   | vectra plus Xenova Transformers fuer lokalen Semantic Index
+ADR-04 | core                   | Mode-basierte Tool-Filterung via Tool-Gruppen
+ADR-05 | core                   | Fail-Closed Approval (kein Callback ist Ablehnung)
+ADR-06 | core                   | Sliding Window fuer Tool-Repetition-Erkennung
+ADR-07 | core                   | Event Separation -- Completion Signals vs. Text Output
+ADR-08 | core                   | Modular Prompt Sections und Central Tool Metadata
+ADR-09 | skills                 | PAS-1 Local Skills
+ADR-10 | governance             | Permissions Audit -- Auto-Approval Wiring
+ADR-11 | providers              | Multi-Provider API Architecture (Adapter Pattern)
+ADR-12 | context                | Context Condensing Strategy (Keep-First-Last)
+ADR-13 | memory-v1              | 3-Tier Memory Architecture [SUPERSEDED -> ADR-77]
+ADR-14 | skills                 | VaultDNA Automatische Plugin-Erkennung als Skills
+ADR-15 | search                 | Hybrid Search mit Semantic plus BM25 plus RRF Fusion
+ADR-16 | tools                  | Rich Tool Descriptions in ToolMeta
+ADR-17 | mastery                | Procedural Skill Recipes
+ADR-18 | mastery                | Episodic Task Memory
+ADR-19 | security               | Electron safeStorage fuer API-Key-Verschluesselung
+ADR-20 | storage                | Global Storage Architecture mit Sync Bridge
+ADR-21 | sandbox                | OS-Level Sandbox via child_process.fork()
+ADR-22 | chat-linking           | Chat-Linking via Pipeline Post-Write Hook
+ADR-23 | document-parsing       | Document Parser als wiederverwendbare Tools
+ADR-24 | document-parsing       | Parsing-Library-Auswahl fuer Office-Formate
+ADR-25 | document-parsing       | On-Demand Bild-Nachlade-Strategie
+ADR-26 | task-extraction        | Post-Processing Hook fuer Task Extraction
+ADR-27 | task-extraction        | Task-Note Frontmatter Schema
+ADR-28 | task-extraction        | Base-Erstellung und optionale Plugin-Integration
+ADR-29 | office-creation        | Input-Schema-Design fuer Office-Creation-Tools
+ADR-30 | office-creation        | Library-Selection fuer Office-Format-Erzeugung
+ADR-31 | office-creation        | Binary-Write-Pattern fuer Office-Format-Dateien
+ADR-32 | pptx-pipeline          | Template-basierte PPTX-Erzeugung (JSZip plus OOXML) [historisch]
+ADR-33 | pptx-pipeline          | Multimodaler Template-Analyzer (Cloud Run plus BYOK) [historisch]
+ADR-34 | pptx-pipeline          | Visual Design Language Document als Skill-Format [historisch]
+ADR-35 | pptx-pipeline          | Visual Intelligence -- Lokale Qualitaetskontrolle [historisch]
+ADR-36 | copilot                | GitHub Copilot Streaming Strategy
+ADR-37 | copilot                | GitHub Copilot Provider Architecture
+ADR-38 | copilot                | Copilot Token Storage in Settings
+ADR-39 | copilot                | Copilot Content Normalization Strategy
+ADR-40 | kilo                   | Kilo Gateway Provider Architecture
+ADR-41 | kilo                   | Kilo Auth and Session Architecture
+ADR-42 | kilo                   | Kilo Metadata Discovery Strategy
+ADR-43 | kilo                   | Kilo Embedding Gating Strategy
+ADR-44 | pptx-pipeline          | CSS-SVG Slide Engine (Abloesung PPTX Template Analyzer) [historisch]
+ADR-45 | pptx-pipeline          | pptx-automizer Template Pipeline (Abloesung CSS-SVG Engine) [historisch]
+ADR-46 | pptx-pipeline          | Direct Template Mode (Abloesung Composition-Abstraktion)
+ADR-47 | pptx-pipeline          | Schema-Constrained Slide Generation [historisch]
+ADR-48 | pptx-pipeline          | plan_presentation Pipeline -- Content-Transformation
+ADR-49 | pptx-pipeline          | Raw XML Clear plus Generate (Vorgeschlagen, nicht umgesetzt)
+ADR-50 | knowledge-db           | SQLite Knowledge DB (sql.js WASM)
+ADR-51 | knowledge-db           | Stufen-Retrieval-Pipeline
+ADR-52 | knowledge-db           | Local Reranker Integration
+ADR-53 | mcp                    | MCP Server Prozess-Architektur
+ADR-54 | mcp                    | MCP Tool-Mapping und System-Prompt-Uebertragung
+ADR-154 | mcp-oauth             | OAuth 2.1 for outbound MCP connectors via the bundled SDK authProvider
+ADR-155 | mcp-oauth             | OAuth redirect capture and token-at-rest for MCP connectors
+ADR-156 | mcp-oauth             | MCP connector catalog with auth classes
+ADR-55 | mcp                    | Remote MCP Relay via Cloudflare Workers plus Durable Objects
+ADR-56 | website                | Static Site Generator fuer Website-Dokumentation
+ADR-57 | website                | Informationsarchitektur und Seitenstruktur
+ADR-58 | mastery                | Semantic Recipe Promotion (Intent-basiert)
+ADR-59 | memory-v1              | Memory Decay Prevention (Aktive Qualitaetssicherung)
+ADR-60 | observability          | Session-Summary Zuverlaessigkeit und Observability
+ADR-61 | fast-path              | Fast Path Execution -- Recipe-gesteuertes Batching
+ADR-62 | prompt-cache           | KV-Cache-Optimized Prompt Structure
+ADR-63 | context                | Context Externalization -- Dateisystem als Kontext
+ADR-64 | providers              | Google Gemini als eigenstaendiger Provider
+ADR-65 | knowledge-maintenance  | Ontologie-Schema und Befuellung
+ADR-66 | knowledge-maintenance  | Ingest-Strategie (Schema-Erkennung und Entitaets-Zuordnung)
+ADR-67 | knowledge-maintenance  | Lint-Architektur (Tool, UI und Trigger)
+ADR-68 | knowledge-maintenance  | OCR-Provider-Auswahl
+ADR-69 | knowledge-maintenance  | Confidence Storage Model
+ADR-70 | graph-intel            | Community Detection Library Selection
+ADR-71 | graph-intel            | Retrieval Integration Pattern
+ADR-72 | config                 | Konfigurierbarer Agent-Storage-Root
+ADR-73 | mcp                    | MCP-Tool-Argument Type-Safety
+ADR-74 | security               | Dependency-Override-Strategie fuer transitive Vulnerabilities
+ADR-75 | skill-packages         | Skill-Package-Architektur (Anthropic-kompatibel plus Coordinator)
+ADR-76 | memory-v2              | Episode-Fact-Boundary
+ADR-77 | memory-v2              | Memory v2 Storage Schema
+ADR-78 | memory-v2              | URI-Schema fuer Memory-Knoten
+ADR-79 | memory-v2              | Knowledge-DB-Haertung (Atomic Write, Multi-File-Commit)
+ADR-80 | memory-v2              | Persistenz-Service-Pattern fuer Memory-v2-Setup-Klassen
+ADR-81 | mcp                    | MCP-Tool-Routing plus Plugin-Standalone-RPC
+ADR-82 | memory-v2              | Topic-Inference-Strategie
+ADR-83 | memory-v2              | Single-Call Tool-Calling Output-Schema
+ADR-84 | memory-v2              | Engine-Public-API-Versionierung
+ADR-85 | memory-v2              | Soft-Delete-Cascade
+ADR-86 | memory-v2              | Inference-Pass-Architektur
+ADR-87 | memory-v2              | Vault-Note-Memory-Source-Pipeline
+ADR-88 | chatgpt-oauth          | ChatGPT OAuth Provider Architecture
+ADR-89 | chatgpt-oauth          | ChatGPT PKCE Loopback OAuth Flow
+ADR-90 | cost                   | Cost-Aware Agent Heuristics
+ADR-91 | mcp                    | MCP Pipeline Routing und IgnoreService at Index Build
+ADR-92 | knowledge-db           | knowledge.db Schema v10 Bundle (BA-25 Foundation, 4 neue Tabellen)
+ADR-93 | knowledge-maintenance  | Source-Identitaet-Modell (Domain-only fuer MVP, BA-25)
+ADR-94 | knowledge-maintenance  | Cluster-Halbwertszeit-Modell (BA-25)
+ADR-95 | knowledge-maintenance  | Frontmatter-Write Conflict-Detection (BA-25 Phase 4)
+ADR-96 | knowledge-maintenance  | MOC-Marker-Konvention (HTML-Comment-Marker, BA-25)
+ADR-97 | prompt-cache           | KV-Cache-Block-Lifecycle fuer Top-Hub-Block (BA-25)
+ADR-98 | knowledge-maintenance  | Pre-Triage-Tool-Architektur (eigenes ingest_triage-Tool, BA-25 Phase 3)
+ADR-99 | knowledge-maintenance  | Tension-Detection-Algorithmus (Hybrid Cosine plus LLM, BA-25)
+ADR-100 | knowledge-maintenance | Dialog-Ingest-State-Storage (ingest_session-Tabelle, BA-25)
+ADR-101 | knowledge-maintenance | Output-Modus-Architektur (3 Modi plus Folder-Layout plus Bibliografie, BA-25)
+ADR-102 | knowledge-maintenance | Auto-Trigger-Detection-Mechanik (vault.on-Listener, BA-25)
+ADR-103 | knowledge-maintenance | Source-Position-Marker und PDF-Strategie (BA-25)
+ADR-104 | knowledge-maintenance | Web-Search-Provider-Strategie (BYOK obligatorisch, BA-25)
+ADR-105 | knowledge-maintenance | Stufe-3 Job-Runner und Token-Budget-Enforcement (BA-25 Phase 5)
+ADR-106 | knowledge-maintenance | Health-Modal-Severity und Activity-Trigger-Cooldown (BA-25)
+ADR-107 | cross-surface         | MCP-Memory-Tools Versionierung (V1 update_memory deprecaten, V2 als save_to_memory, EPIC-23)
+ADR-108 | cross-surface         | Source-Interface-Tagging fuer cross-surface origin tracking (EPIC-23)
+ADR-109 | cross-surface         | Vault-zu-Memory-Bruecke via Single-Listener-Pattern (FEAT-03-25, supersedes ADR-87)
+ADR-110 | cross-surface         | Living-Document-Semantik plus Cross-Interface-Thread-Klammer (EPIC-23)
+ADR-111 | prompt-cache          | Provider Capability-Flag und Bedrock cachePoint (Erweiterung zu ADR-62)
+ADR-112 | attachments           | Attachment-Lifecycle im Sidebar (Snapshot vs API-Split, Push-Sync zum Tool-Layer)
+ADR-113 | agent-loop            | Subagent-Delegation fuer context-heavy Teilaufgaben (Per-Call-Token-Budget, EPIC-24)
+ADR-114 | agent-loop            | Autonomie-Governance (Token-/Kosten-Budget pro Task, Steering-Hook, EPIC-24)
+ADR-115 | agent-loop            | Internes Hilfs-Modell-Routing fuer Agent-interne LLM-Calls (EPIC-24)
+ADR-116 | agent-loop            | Active Skills: model-getriebenes On-demand-Laden statt Klassifikator-Inject (EPIC-24)
+ADR-117 | agent-loop            | Lazy-Loading von Tool-Schemas (EPIC-24) [Superseded by ADR-118]
+ADR-118 | agent-loop            | MCP-Tool-Listing-Cap, read_mcp_tool, Built-in deferred-Review (EPIC-24)
+ADR-120 | modell-routing        | Advisor-Pattern als Loop-Default (consult_flagship-Tool + mid-Tier-Hauptloop)
+ADR-121 | modell-routing        | Tier-Klassifikator-Strategie (Pattern + Capability + OpenRouter-Pricing)
+ADR-122 | provider-config       | Provider-only Settings-Schema (providers[]-Liste mit tierMapping)
+ADR-123 | settings-migration    | Settings-Schema-Migration und Recovery-Pfad
+ADR-119 | agent-folder          | Plugin-Daten-Ordner-Konsolidierung auf einen kanonischen Pfad (EPIC-29)
+ADR-119 | layout-migration       | src/core/utils/migrateAgentLayout.ts -- 10-Phasen idempotent + resumable, FEAT-29-01
+ADR-119 | layout-aware-helpers   | src/core/utils/agentFolder.ts -- getPluginSkillsDir/getTmpRoot/getVaultDnaPath/getSelfAuthoredSkillsDir flip auf data/cache wenn _layoutMigrationStatus=complete
+ADR-119 | global-fs-relocator    | src/core/storage/GlobalFileService.ts:useVaultLocalRoot -- nach Migration zeigt globalFs.getRoot() auf {vault}/.vault-operator/data
+ADR-119 | layout-migration-ui    | src/ui/settings/VaultTab.ts:buildLayoutMigrationSection -- Run-Migration / Reset-Pfad / chatHistoryFolder-Notice
+ADR-124 | skill-discovery       | Plugin-as-Skill Live-Probe Discovery statt periodischem Polling (EPIC-29)
+ADR-125 | execute-command       | Execution Visibility fuer Plugin-Commands via Notice-Capture (EPIC-29)
+ADR-126 | skill-authoring       | Skill-Authoring als Builtin-Skill statt CRUD-Tool plus run_skill_script (EPIC-29)
+ADR-127 | skill-translator      | Python-zu-JavaScript Skill-Translation mit Dry-Run-Pass (EPIC-29)
+ADR-128 | skill-versioning      | Skill-Versionierung mit Diff-basiertem Snapshot und Restore (EPIC-29)
+ADR-129 | skill-composability   | Skill-Composability mit Skill-zu-Skill und Skill-zu-MCP-Aufrufen (EPIC-29)
+ADR-135 | freshness-verifier     | src/core/health/FreshnessVerifier.ts -- Stage-4-Pipeline mit Mid-tier + optionaler Frontier-Eskalation (IMP-20-06-01)
+ADR-135 | freshness-types        | src/core/health/types.ts -- NoteVerdict, VerdictLiteral, VerifierTier (IMP-20-06-01 W1-T4)
+ADR-135 | freshness-history      | src/core/health/NoteFreshnessHistoryStore.ts -- Append-only verifier-run history with 5-or-90-day retention (IMP-20-06-01 W1-T3)
+ADR-135 | freshness-query-builder| src/core/health/FreshnessQueryBuilder.ts -- verifierQuery mit 400-Char-Cap (Tavily/Brave-safe), Unit-Test pinnt
+ADR-104 | freshness-web-search   | src/core/health/FreshnessWebSearch.ts -- programmatischer Brave/Tavily-Wrapper mit externalSources-Privacy-Toggle (IMP-20-06-01 W2-T4)
+ADR-135 | freshness-llm-provider | src/core/health/LlmVerifierProvider.ts -- VerifierProvider-Implementierung auf apiHandler.classifyText (Mid+Frontier), Fail-Closed (IMP-20-06-01 W2-T5)
+ADR-105 | freshness-orchestrator | src/core/health/FreshnessOrchestrator.ts -- Per-Cluster-Pipeline Selector->WebSearch->Verifier->History+Mirror (IMP-20-06-01 W2-T5)
+ADR-105 | freshness-note-selector| src/core/health/NoteSelector.ts -- liest note_freshness.freshness_class als Scheduling-Heuristik, dismissed_freshness als User-Override-Filter (IMP-20-06-01 Amendment)
+ADR-106 | knowledge-review-tab   | src/ui/modals/VaultHealthRepairModal.ts -- Knowledge-review Tab: per-note Verdicts (Severity-Mapping) PLUS cluster_freshness Findings (aus Findings-Tab gefiltert) (IMP-20-06-01 W3-T1, Rename 2026-06-19)
+ADR-106 | knowledge-review-reader| src/core/health/KnowledgeReviewReader.ts -- Read-Side fuer note_freshness + history mit Severity-Mapping outdated/contradicts-high->critical (IMP-20-06-01 W3-T1, Rename 2026-06-19)
+ADR-106 | batch-resolve-modal    | src/ui/modals/BatchResolveModal.ts -- Bulk-Apply mit Severity+Confidence-Filter, Abort (IMP-20-06-01 W3-T3)
+ADR-95  | freshness-frontmatter-allowlist | src/core/health/FreshnessFrontmatterPatcher.ts -- single-key 'freshness' allowlist filter ueber FrontmatterWriter (IMP-20-06-01 W4-T1)
+ADR-135 | zdr-capability         | src/core/health/ZdrCapabilityResolver.ts -- liest ProviderConfig.zdrCapable, Frontier-Eskalation nur unter ZDR+enabled+flagship-tier (IMP-20-06-01 W4-T2)
+ADR-135 | freshness-settings-ui  | src/ui/settings/VaultTab.ts -- Settings-Tab Sub-Section fuer alle freshness-Sub-Flags + Exclude-Paths (IMP-20-06-01 W4-T3); ProviderDetailModal traegt ZDR-Confirmation pro Provider
+ADR-135 | verdict-vocab-migration| src/core/knowledge/KnowledgeDB.ts (migrateVerdictVocabularyV11ToV12) -- schema v11->v12 rewrites German verdict literals (deckt-sich/ergaenzt/widerspricht) to English canon (matches/extends/contradicts) in note_freshness + note_freshness_history (2026-06-19)
+
+# EPIC-33 Inline-Editor-AI-Actions (Architektur 2026-06-22)
+ADR-138 | sidebar-independence    | Tier-1-Refactor: ToolCallbacks-Interface + AgentTaskRunner-Abstraktion + Mode/Thinking/Effort-Override-Parameter; Tier-2 spaeter (Settings-Source-Dekoppelung, ContextTracker-Extract). Pattern-Vorbild PlanPresentationTool.
+ADR-139 | inline-diff-renderer    | CodeMirror-6 Custom mark+widget Pattern mit StateField+StateEffect. jsdiff (transitive Dep), 80ms-Debounce, Per-Hunk Cmd+Opt+Y/N. Latenz-Budget ~120ms.
+ADR-140 | inline-settings-snapshot| Hybrid: Modell+Provider gecached mit plugin.saveSettings-Invalidation, Skills/Prompts pro Trigger frisch. Per-Action-Pin (FEAT-33-10) ueberschreibt Modell-Anteil.
+ADR-141 | inline-skill-capability | Schema-Erweiterung Skill-Manifest: inlineActionCapability { eligible, output_mode, input_format, max_selection_chars }. Default null = nicht im Inline-Menu.
+ADR-142 | vault-rag-lookup-pipeline | Synchrone Pipeline: Embedding -> VectorStore.findNoteVectors(domain:'note') -> Confidence-Threshold 0.7 -> LLM-Augmentation -> Quellen-Tooltip. Fallback LLM-only.
+ADR-143 | conversation-block-storage | Markdown-Code-Fence vault-operator-chat-v1 mit JSON-Body. 20-Turn-Cap + Auto-Collapse. Indexierung via Phase D markdownIndexer.
+ADR-144 | inline-action-telemetry | OperationLogger-Erweiterung um 4 Event-Typen (inline_action_triggered/accepted/rejected/pinned). Privacy-Sanitization: kein Selection-Inhalt persistiert.
+
+# EPIC-33 polish wave (added 2026-06-22, alle Module live verkabelt)
+inline-selection-watcher  | src/core/inline/SelectionWatcher.ts                    | ADR-138 ADR-141 | new trigger: extend mouseup/keyup hooks oder Floating-Menu-Open-Logic
+inline-codemirror-diff    | src/core/inline/diff/CodeMirrorDiffAdapter.ts          | ADR-139         | new diff-visualisation: extend StateField/Effect + Decoration.mark/widget
+inline-actions-tab        | src/ui/settings/InlineActionsTab.ts                    | ADR-138 ADR-140 | new inline-action: add row im knownActions-Array + Setting
+
+# Issue-61 context-overflow wave (added 2026-07-17, concept rows added with /coding)
+context-overflow-guardrail | src/core/agent/toolResultBudget.ts                | ADR-157         | new truncation strategy: extend READ_OFFSET_TOOLS / truncateResultString; budget knobs: AGGREGATE_RESERVE_* constants
+context-window-resolution  | src/core/routing/tierResolution.ts               | ADR-158, ADR-148 | stage 1 lives in providerConfigToCustomModel (MIN_PLAUSIBLE_CONTEXT_WINDOW clamp); providers fall back via config.contextWindow ?? registry
+investigate-delegation-tool| src/core/tools/agent/InvestigateTool.ts          | ADR-159, ADR-113 | adjust profile in src/core/agent/subagent-profiles.ts (INVESTIGATE_PROFILE); registration via TOOL_METADATA group 'agent'
+ADR-157 | agent-loop            | Kontext-Overflow-Guardrail -- Aggregat-Budget im Tool-Batch, Pre-Request-Gate, Wire-Sanitisierung
+ADR-158 | model-metadata        | Kontextfenster-Aufloesungskette -- provider-gemeldet (Discovery) vor Registry vor Claude-Inferenz vor Default
+ADR-159 | agent-loop            | investigate-Delegations-Tool -- Profil-Registry, Quellenanker-Kontrakt, mid-Tier-Routing, Kosten-Rollup
+ADR-169 | parallel-sessions     | Multi-Leaf-Session-Modell -- N Leaves eines View-Typs, aktive Session = zuletzt fokussiert, vault-weite Aktionen auf aktive statt leaves[0]
+ADR-170 | parallel-sessions     | Per-Session-Ownership von Mode/Attachments/Session-Flags -- pro View/Run statt global, kein State-Bleed
+ADR-171 | parallel-sessions     | Concurrency-safe Run-Identity + serialisierte atomare Persistenz -- kollisionsfreie Ids, per-File-Queue mit tmp+rename
+ADR-172 | parallel-sessions     | Geteilte API-Kapazitaets-Koordination -- Rate-Limiter/Circuit/Auth bleiben geteilt, parallel-mit-Backoff bei einem Key
+
+# dia-realign catalog backfill (added 2026-08-11): 27 ADRs fehlten im Katalog.
+# Text = Frontmatter-Titel der jeweiligen ADR-Datei.
+ADR-130 | stigmergy             | Stigmergy als externer Recall-Layer in VO
+ADR-131 | stigmergy             | VO-Selektor-Vorrang vor Stigmergy-Suggestion
+ADR-132 | stigmergy             | Stigmergy-Pinned-Sequence Direct Recipe Promotion
+ADR-133 | mastery               | Episode-Recording im finally-Block plus indexEpisode-Success-Gate
+ADR-134 | providers             | Bedrock-Gateway-Auth-Mode (Custom-Header statt SigV4 hinter Enterprise-APIM)
+ADR-135 | knowledge-maintenance | Verdict-Confidence-Routing und ZDR-Pflicht fuer Note-Verifier
+ADR-136 | knowledge-db          | KnowledgeDB Domain-Diskriminator und Migration v12 zu v13
+ADR-137 | knowledge-db          | KnowledgeDB Domain-Access-Pattern (Helper + Lint-Regel)
+ADR-145 | agent-loop            | ADR-145-agent-loop-engine-state-machine
+ADR-146 | providers             | ADR-146-provider-resilience-layer
+ADR-147 | modell-routing        | ADR-147-model-capabilities-registry
+ADR-148 | model-metadata        | ADR-148-deploy-free-model-metadata
+ADR-149 | agent-loop            | ADR-149-inflight-persistence-immutable-log
+ADR-150 | providers             | ADR-150-provider-wire-adapters
+ADR-151 | fast-path             | ADR-151-fastpath-trust-levels
+ADR-152 | skills                | ADR-152-pro-skill-grandfathering
+ADR-153 | governance            | ADR-153-effekt-basiertes-approval-gate
+ADR-160 | config                | forcedWorkflow wird vault-lokal statt global gespeichert
+ADR-161 | mcp                   | MCP-Aktivierung pro Agent (vault-lokal) statt global
+ADR-162 | layout-migration      | Layout-Konsolidierung automatisch für Frischinstallationen
+ADR-163 | vault-health          | Freshness-Verifikation als on-demand Teilcheck von Vault Health
+ADR-164 | vault-health          | Gemeinsames Prädikat pro Finding-Klasse (Check = Plan = Verify)
+ADR-165 | governance            | Plan-Approval für Mass-Writes auch im Modal-Pfad
+ADR-166 | vault-health          | Write-Extract-Verify als atomare, event-basierte Sequenz
+ADR-167 | vault-health          | Deterministische Findings, Options-Chokepoint und Snapshot-Lesen
+ADR-168 | mcp                   | Nativer stdio-Support fuer ausgehende MCP-Connectors (device-lokal, ask-Gate, keine OS-Sandbox)
+ADR-173 | context               | ADR-173-token-counting-strategy
+ADR-174 | governance            | Skill-Skript-Approval -- Wirkungs-Gate statt byte-genauem Ausführungs-Gate

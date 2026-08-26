@@ -1,0 +1,33 @@
+Nova Vault
+Copyright 2025-2026 Leon-DK
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This product includes software adapted from Kilo Code
+(https://github.com/Kilo-Org/kilocode).
+Copyright 2025- Kilo Code LLC.
+Licensed under the Apache License, Version 2.0.
+
+Kilo Code is a fork of Roo Code, which is a fork of Cline.
+Original work: Copyright 2025 Cline Bot Inc.
+Modified work (Roo Code): Copyright 2025 Roo Veterinary Inc.
+Modified work (Kilo Code): Copyright 2025- Kilo Code LLC.
+
+This product includes software developed by Continue Dev, Inc.
+Copyright 2023 Continue Dev, Inc.
+Licensed under the Apache License, Version 2.0.
+
+Derived components include:
+  src/api/          API handler interfaces, streaming providers, factory patterns
+  src/core/         Agent loop, system prompt, tool pipeline, context loaders,
+                    mode system, skills and workflow system
+  src/ui/           Sidebar UI patterns
+
+Portions of the agent identity system are inspired by OpenClaw
+(https://github.com/openclaw/openclaw).
+Copyright 2025 Peter Steinberger.
+Licensed under the MIT License.

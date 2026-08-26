@@ -1,0 +1,91 @@
+---
+title: Your first conversation
+description: Learn the basics of chatting with Vault Operator, including the default agent, context, and how the agent thinks.
+---
+
+# Your first conversation
+
+Vault Operator is an agent that reads, writes, and searches your vault. A few concepts help before you start.
+
+## Default agent
+
+Vault Operator ships with one built-in agent, called **Default agent** (since 2026-05-18). It can read, write, edit, create, and delete files in your vault. There is no separate read-only mode and the agent does not switch behaviour mid-conversation.
+
+If you want read-only behaviour, you have two options:
+
+- Open **Settings > Vault Operator > Agents > Auto-approve** and set everything to "ask every time". The agent then needs an explicit click before any write.
+- Open **Settings > Vault Operator > Agents > Agents** and create a Custom Agent that excludes the `edit`, `vault`, `web`, `agent`, `mcp`, and `skill` tool groups. The custom agent can then only use the `read` group.
+
+:::tip Use approvals if you want safety
+The chat header has no mode switcher; agents are picked from the agent selector instead. If you want to explore without any risk of changes, keep the approval prompts on so every write needs an explicit click.
+:::
+
+:::tip Prefer to stay in the note?
+Right-click the selection and choose **Inline AI chat** to open the inline panel (or bind a hotkey to the **Open inline AI chat** command, which has no default). It runs the same agent loop. See [guides/inline-chat](/guides/inline-chat) for details.
+:::
+
+## Context: what the agent knows
+
+The agent sees:
+- Your message and the conversation history
+- The active note (if "Auto-add active note as context" is enabled in **Settings > Vault Operator > Advanced > Interface**)
+- Attached files (drag & drop or click the paperclip icon)
+- @-mentioned files (type `@` in the chat to search your vault)
+- Its memory of past conversations (if memory is enabled)
+
+It does **not** read your entire vault upfront. It searches and reads files on demand via tools.
+
+## The activity block
+
+When the agent works, an expandable activity block appears below the response. It shows every tool call in real time:
+
+- Tool name (e.g., `read_file`, `search_files`, `semantic_search`)
+- Key parameters (e.g., the file path or search query)
+- Result (expand to see details)
+- Diff badge for write operations: `+3 / -1` lines changed
+
+Click the activity block to expand or collapse it.
+
+## Approvals
+
+By default, the agent asks for your approval before any write operation. An approval card appears showing exactly what the agent wants to do:
+
+- Write file: shows the full content
+- Edit file: shows the diff
+- Delete file: shows which file
+- Move file: shows source and destination
+
+Click **"Allow once"** to approve, or **"Always allow"** to auto-approve that category.
+
+:::warning Auto-approve with care
+Enabling auto-approve for writes means the agent acts without asking. The checkpoint system lets you undo, but review what changed after each task.
+:::
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Enter` | Send message (default). |
+| `Ctrl/Cmd+Enter` | Send message when "Send with Enter" is turned off in settings. |
+| `Shift+Enter` | New line |
+| `/` | Open workflow/prompt picker |
+| `@` | Open file mention picker |
+| Right-click > Inline AI chat | Open the inline panel over the selection |
+
+## Tips for better results
+
+Be specific. "Summarize the meeting notes from March" works better than "summarize my notes."
+
+Use `@filename` to point the agent at specific notes instead of hoping it finds them.
+
+The activity block shows exactly what the agent did, which is useful for learning how it works and for catching mistakes when it goes sideways.
+
+For broad questions like "What do I know about X?", just ask. The agent will run a semantic search on the vault itself.
+
+## Next steps
+
+The natural next tutorial is [Search your vault by meaning](./search-by-meaning), which gets semantic search running. After that, [Capture a PDF with quick ingest](./quick-ingest) and [Sense-making with deep ingest](./deep-ingest) cover the two ingest paths.
+
+For deeper references: [Choosing a model](/guides/choosing-a-model) for provider comparisons, [Chat interface](/guides/chat-interface) for the full feature set, and [Knowledge discovery](/guides/knowledge-discovery) for the full search and graph story.
+
+If a tool call fails or the agent gets stuck, the [Troubleshooting](/reference/troubleshooting) page covers the common cases.

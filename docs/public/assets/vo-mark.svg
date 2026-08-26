@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Vault Operator">
+  <!-- Brand mark: gradient rounded square carrying a forward slash. Mirrors the
+       pure-CSS .vo-brand-mark in the plugin (styles.css): 145deg CSS gradient
+       #e6547f 0% / #a24bd8 55% / #7b5cf0 100%, corner radius = size / 3.6,
+       white slash 2px wide at 24px scale, height 0.58 * size, rounded caps. -->
+  <defs>
+    <linearGradient id="vo-ramp" x1="0.1006" y1="-0.0705" x2="0.8994" y2="1.0705">
+      <stop offset="0" stop-color="#e6547f"/>
+      <stop offset="0.55" stop-color="#a24bd8"/>
+      <stop offset="1" stop-color="#7b5cf0"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="35.6" fill="url(#vo-ramp)"/>
+  <line x1="64" y1="32.2" x2="64" y2="95.8" stroke="#ffffff" stroke-width="10.7" stroke-linecap="round" transform="rotate(45 64 64)"/>
+</svg>

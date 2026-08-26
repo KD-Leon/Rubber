@@ -1,0 +1,157 @@
+import { App, Notice, setIcon } from 'obsidian';
+import type ObsidianAgentPlugin from '../../main';
+import { ContentEditorModal } from './ContentEditorModal';
+import { t } from '../../i18n';
+
+export class WorkflowsTab {
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+
+    private buildIntroSection(containerEl: HTMLElement): void {
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(infoIcon, 'lightbulb');
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
+        infoText.createEl('strong', { text: t('settings.workflows.introTitle') });
+        infoText.createDiv({ text: t('settings.workflows.introDesc') });
+        infoText.createDiv({ text: t('settings.workflows.introDiff') });
+    }
+
+    build(containerEl: HTMLElement): void {
+        containerEl.createEl('h3', { text: t('settings.workflows.heading') });
+        this.buildIntroSection(containerEl);
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: t('settings.workflows.desc'),
+        });
+
+        const workflowLoader = this.plugin.workflowLoader;
+
+        // ── Create row ───────────────────────────────────────────────────
+        const createRow = containerEl.createDiv({ cls: 'agent-rules-create-row' });
+        const nameInput = createRow.createEl('input', {
+            type: 'text', placeholder: t('settings.workflows.placeholder'),
+            cls: 'agent-rules-name-input',
+        });
+        const createBtn = createRow.createEl('button', { text: t('settings.workflows.create'), cls: 'mod-cta' });
+
+        // Import button
+        const importBtn = createRow.createEl('button', { text: t('settings.workflows.import'), cls: 'agent-rules-import-btn' });
+        importBtn.addEventListener('click', () => {
+            const fileInput = createEl('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.md,.txt';
+            fileInput.addEventListener('change', () => { void (async () => {
+                const file = fileInput.files?.[0];
+                if (!file || !workflowLoader) return;
+                const content = await file.text();
+                const nameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+                try {
+                    await workflowLoader.createWorkflow(nameWithoutExt, content);
+                    await refreshList();
+                } catch {
+                    new Notice(t('settings.workflows.importFailed'));
+                }
+            })(); });
+            fileInput.click();
+        });
+
+        // ── Workflow list ────────────────────────────────────────────────
+        const listEl = containerEl.createDiv({ cls: 'agent-rules-list' });
+
+        const refreshList = async () => {
+            listEl.empty();
+            if (!workflowLoader) {
+                listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.workflows.loaderNotAvailable') });
+                return;
+            }
+            const workflows: { path: string; slug: string; displayName: string }[] =
+                await workflowLoader.discoverWorkflows();
+            if (workflows.length === 0) {
+                listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.workflows.empty') });
+                return;
+            }
+            // Boxed table, same visual language as the Models table (IMP-04-10-01).
+            const table = listEl.createDiv('agent-table-box').createEl('table', { cls: 'agent-skill-table' });
+            const thead = table.createEl('thead');
+            const hr = thead.createEl('tr');
+            hr.createEl('th', { text: t('settings.workflows.headerWorkflow') });
+            hr.createEl('th', { text: '', cls: 'agent-th-actions' });
+            hr.createEl('th', { text: t('settings.workflows.headerActive'), cls: 'agent-skill-th-toggle' });
+            const tbody = table.createEl('tbody');
+            for (const wf of workflows) {
+                const row = tbody.createEl('tr');
+                const nameTd = row.createEl('td', { cls: 'agent-skill-name-cell' });
+                nameTd.createDiv({ text: wf.displayName, cls: 'agent-skill-name' });
+                nameTd.createDiv({ cls: 'agent-skill-desc' })
+                    .createSpan({ cls: 'agent-workflow-slug', text: `/${wf.slug}` });
+
+                const actions = row.createEl('td', { cls: 'agent-actions-cell' });
+
+                const editBtn = actions.createEl('button', { cls: 'agent-rules-edit-btn' });
+                setIcon(editBtn, 'pencil');
+                editBtn.setAttribute('aria-label', t('settings.workflows.edit'));
+                editBtn.addEventListener('click', () => { void (async () => {
+                    const content = await workflowLoader.readFile(wf.path);
+                    new ContentEditorModal(this.app, t('settings.workflows.editWorkflow', { name: wf.displayName }), content, (newContent) => {
+                        return workflowLoader.writeFile(wf.path, newContent);
+                    }).open();
+                })(); });
+
+                const exportBtn = actions.createEl('button', { cls: 'agent-rules-export-btn' });
+                setIcon(exportBtn, 'download');
+                exportBtn.setAttribute('aria-label', t('settings.workflows.export'));
+                exportBtn.addEventListener('click', () => { void (async () => {
+                    const content = await workflowLoader.readFile(wf.path);
+                    const blob = new Blob([content], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = createEl('a');
+                    a.href = url;
+                    a.download = `${wf.slug}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                })(); });
+
+                const delBtn = actions.createEl('button', { cls: 'agent-rules-delete-btn' });
+                setIcon(delBtn, 'trash-2');
+                delBtn.setAttribute('aria-label', t('settings.workflows.delete'));
+                delBtn.addEventListener('click', () => { void (async () => {
+                    await workflowLoader.deleteWorkflow(wf.path);
+                    this.plugin.settings.workflowToggles ??= {};
+                    delete this.plugin.settings.workflowToggles[wf.path];
+                    await this.plugin.saveSettings();
+                    await refreshList();
+                })(); });
+
+                // Enable/disable toggle
+                this.plugin.settings.workflowToggles ??= {};
+                const isActive = this.plugin.settings.workflowToggles[wf.path] !== false;
+                const toggleTd = row.createEl('td', { cls: 'agent-skill-toggle-cell' });
+                const toggleEl = toggleTd.createDiv({
+                    cls: `checkbox-container agent-rules-toggle${isActive ? ' is-enabled' : ''}`,
+                });
+                toggleEl.addEventListener('click', () => {
+                    this.plugin.settings.workflowToggles ??= {};
+                    const current = this.plugin.settings.workflowToggles[wf.path] !== false;
+                    this.plugin.settings.workflowToggles[wf.path] = !current;
+                    void this.plugin.saveSettings();
+                    toggleEl.toggleClass('is-enabled', !current);
+                });
+            }
+        };
+
+        createBtn.addEventListener('click', () => { void (async () => {
+            const name = nameInput.value.trim();
+            if (!name || !workflowLoader) return;
+            const template = `# ${name}\n\n`;
+            const wPath = await workflowLoader.createWorkflow(name, template);
+            nameInput.value = '';
+            await refreshList();
+            new ContentEditorModal(this.app, t('settings.workflows.editWorkflow', { name }), template, (content) => {
+                return workflowLoader.writeFile(wPath, content);
+            }).open();
+        })(); });
+
+        void refreshList();
+    }
+
+}

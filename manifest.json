@@ -1,0 +1,10 @@
+{
+  "id": "vault-operator",
+  "name": "Nova Vault",
+  "version": "3.7.0",
+  "minAppVersion": "1.8.7",
+  "description": "Agentic AI operating layer for your vault. Discovers and uses installed plugins, maintains persistent unified memory, and adapts to your workflows, skills and tools with full safety controls.",
+  "author": "Leon-DK",
+  "authorUrl": "https://github.com/pssah4",
+  "isDesktopOnly": true
+}
