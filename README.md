@@ -1,370 +1,143 @@
-**English** | [中文 (Simplified)](#nova-vault-中文)
-
-# Nova Vault
-
-**Agentic AI operating layer for your vault.**
-
 <p align="center">
-  <img src="docs/public/vault-operator-demo.gif" alt="Vault Operator inside Obsidian: an inline action rewrites a paragraph with a web source, then the sidebar agent turns the topic into a labeled Canvas and a Base of related notes, meetings and people" width="820">
+  <h1 align="center">✨ Nova Vault</h1>
+  <p align="center">
+    <strong>极简美学设计 · 深度知识库 RAG 与自主 Multi-Agent 智能体</strong>
+  </p>
+  <p align="center">
+    Next-Generation Agentic AI Copilot for Obsidian with Minimalist Aesthetics & Deep Knowledge Graph RAG
+  </p>
+  <p align="center">
+    <a href="#-quick-start"><img src="https://img.shields.io/badge/Obsidian-Plugin-blue?logo=obsidian" alt="Obsidian Plugin"></a>
+    <a href="#-license"><img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License"></a>
+    <img src="https://img.shields.io/badge/Version-3.7.0-purple.svg" alt="Version">
+    <img src="https://img.shields.io/badge/Local--First-Privacy%20Guaranteed-teal.svg" alt="Local First">
+  </p>
 </p>
 
-You describe a task, it plans, searches, reads, writes, and reports back. Every action is visible. Every write needs your approval. Every change is undoable in one click.
+---
 
-Free. Open source. Local-first. Works with cloud models, with your existing ChatGPT or Copilot subscription, or fully offline with Ollama or LM Studio.
-
-[Documentation](https://pssah4.github.io/vault-operator) | [Install from Obsidian](obsidian://show-plugin?id=vault-operator) | [Community page](https://community.obsidian.md/plugins/vault-operator)
-
-## Watch: how the agent works, from the inside
-
-A 7-minute animated tour through the whole machine: the agent loop, the harness with its five gates, tools, skills, and MCP, then one real job crossing every layer. Click to watch:
-
-<p align="center">
-  <a href="https://github.com/pssah4/vault-operator/releases/download/media/vault-operator-explainer.mp4">
-    <img src="https://github.com/pssah4/vault-operator/releases/download/media/explainer-poster.jpg" alt="Inside Vault Operator: a 7-minute animated explainer of the agent loop, harness, tools, skills, and MCP" width="820">
-  </a>
-</p>
-
-Also embedded on the [capabilities page](https://pssah4.github.io/vault-operator/guides/capabilities) of the docs.
+[**中文文档**](#-中文说明) | [**English Documentation**](#-english-documentation)
 
 ---
 
-## What people are saying
+## 🇨🇳 中文说明
 
-> "Vault Operator might be the best Obsidian agentic AI plugin out there."
-> *Nick, Buy Me a Coffee*
-
-> "I've just discovered your wonderful plugin, which to me is way more than a simple plugin. It is a real harness inside Obsidian. That's awesome!"
-> *arkham000, GitHub*
-
-> "Vault Operator is one of the most interesting and powerful Obsidian plugins I've tried so far. The combination of agent functionality, vault access and document processing is particularly impressive."
-> *Stapledon-de, GitHub*
-
-> "Love your work with Vault Operator."
-> *mikaljrue, Buy Me a Coffee*
-
-> "Vault Operator plugin is exactly what I was looking for. The ability to plug in MCP, the support for various models and providers, the skills, and workflows. I am really looking forward to get my hands dirty. I am hoping I won't need to use VS Code + GitHub Copilot to help me manage my vault anymore."
-> *Buy Me a Coffee supporter*
-
-> "I have only just started, but this is real motivation to get back into Obsidian again."
-> *hkocam, Buy Me a Coffee (translated from German)*
+**Nova Vault** 是一款专为 Obsidian 打造的下一代自主 AI 智能体与知识库中枢。它不仅拥有极具呼吸感、克制优雅的 **极简交互界面**，更将深度语义检索（Vector RAG）、自主多步推理循环（Agent Loop）、长期记忆事实库与标准化 MCP（Model Context Protocol）协议深度融合，让你在本地笔记中拥有超越商业级 AI 助手的全能知识管理体验。
 
 ---
 
-## What you get
+### 🌟 核心特性概览
 
-A chatbot reads your prompt and answers. Vault Operator runs a loop: it picks an action, executes it against your vault, feeds the result back to the model, and continues until the task is done.
+#### 🎨 1. 极简交互美学
+- **1:1 原生级设计语言**：黑白中性色调、柔和圆角卡片、无边框悬停动作项与清晰大标题。
+- **智能下拉浮窗（Dropdown Popover）**：点击顶部 `新建 AI 对话 ⌵` 即可直接呼出轻量历史会话卡片，随点即查，点击外部自动收起。
+- **一体化输入卡片**：`16px` 大圆角高质感悬浮卡片，集成当前活动笔记药丸标签（Context Pill）与向上箭头（`↑`）发送键。
 
-- **Inline AI chat.** Select text in any note and press Cmd+Shift+I (Ctrl+Shift+I on Windows and Linux), or right-click and choose "Inline AI chat", to open a floating chat panel anchored over the selection. The panel runs the same agent loop as the sidebar (skills, MCP, memory) and ships quick actions for Lookup (vault search with optional web fallback), Rewrite, Translate, Summarize, and Find action items. Available since v3.0.0. [Chat interface guide](https://pssah4.github.io/vault-operator/guides/chat-interface).
-- **Run several chats at once.** Open independent conversations in their own tabs, each with its own mode and attachments. A long-running task keeps working in one tab while you start another; interrupted runs resume from history. Available since v3.3.1.
-- **Capture sources with block-level provenance.** Drop a PDF into the chat, get a source note where every key claim links back to the exact paragraph in the original.
-- **Clip web pages into your vault.** Give the agent a URL and it archives the full page as a Markdown note, downloads the images as real vault files, and rewrites the links to point at the local copies. Available since v3.3.6.
-- **Three-layer memory across sessions.** Short-term session summaries, durable facts that survive resets, and a soul profile of how you write and how you want the agent to behave.
-- **Find notes by meaning, not by filename.** Local vector index, full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker, combined with weighted RRF.
-- **Build Word and Excel files, draft PowerPoint decks (PPTX in beta).** Turn project notes into a DOCX, structured data into an XLSX, or meeting notes into a draft PPTX.
-- **Run a vault health check.** Surfaces orphans, broken links, missing backlinks, weak clusters, and over-connected hubs. Every fix creates a checkpoint you can undo.
-- **Use the vault from ChatGPT, Claude Desktop, or Perplexity.** Vault Operator runs as an MCP server, so your other AI clients can read the same memory and history as the in-Obsidian agent.
-- **Hold the keys with auto-approve.** Fail-closed by default. Per-category toggles for read, write, plugin-API, command, MCP, and web. One permission center lists every individual grant the agent holds so you can review and revoke any of them. Sensitive folders are gated by a `.obsidian-agentignore` file.
-- **Reuse what Obsidian already exposes.** Plugin-API discovery lets the agent invoke installed plugins (Excalidraw, Dataview, Tasks) instead of duplicating their work.
+#### 🧠 2. 深度语义检索与本地 RAG（Semantic Search）
+- **向量语义理解**：结合向量索引、全文关键字检索与双向链接图谱扩展（Graph Expansion），AI 能根据概念含义而非僵硬的字面匹配找到相关笔记。
+- **隐式关联洞察**：自动发掘库内尚未建立双链的潜在关联笔记对，激发全新洞见。
+- **逐段溯源（Provenance）**：读取 PDF 与文献时，自动提取关键论点并绑定精准到段落的 Block ID 双向引用。
 
----
+#### 🤖 3. 自主多智能体循环（Autonomous Agent Loop）
+- **目标分解与自主执行**：不仅仅是问答，AI 能够自主拆解任务、读取多篇笔记、检索互联网、生成大纲、编辑内容并向你汇报成果。
+- **严格权限防线（Fail-Closed Permissions）**：文件写入与敏感操作均需用户显式批准，每一次更改均支持一键回滚撤销（Undo）。
+- **多会话并发**：支持多标签页独立并行运行不同任务，互不阻塞。
 
-## What it does for knowledge work
+#### ⚡ 4. 划词行内助手（Inline AI Copilot）
+- 在编辑器任意位置选中文本，按快捷键 `Cmd/Ctrl + Shift + I`（或右键菜单）即可唤起浮动交互栏。
+- 一键进行**智能润色、扩写扩充、精简提炼、中英互译、代码解释与提取 Action Items 待办项**。
 
-### Capture sources with provenance
+#### 📊 5. 知识库健康体检与文档自动化
+- **全库健康体检（Vault Health Audit）**：一键扫描并修复孤岛笔记（Orphan Notes）、失效死链（Broken Links）、缺失反链与过度集中的枢纽笔记。
+- **富文档自动导出**：一键将笔记内容提炼生成 Word (DOCX)、Excel (XLSX) 或演示文稿 (PPTX)。
+- **Canvas 白板自动化**：根据对话主题自动生成结构严密、带连线与标签的 Obsidian Canvas 白板思维导图。
 
-Drop a PDF or a Markdown source into the chat and ask for an ingest. The agent produces a clean source note with block IDs on every key claim, so each fact links back to the exact paragraph in the original.
+#### 🛠️ 6. 开放技能与 MCP 协议扩展（Model Context Protocol）
+- **Prompt 技能包（Skills）**：支持加载开放规范的 Prompt Cheatsheet，扩展专业领域能力。
+- **Obsidian 充当 MCP Server**：将本地 Obsidian 知识库作为 MCP 服务端开放给 **ChatGPT、Claude Desktop、Cursor**，实现跨软件调用与数据同步。
+- **连接外部 MCP**：接入 PostgreSQL、GitHub 等外部服务，直接在 Obsidian 中查询数据库与操作代码。
 
-Two paths:
-
-- **"Ingest this PDF as a source note."** Quick capture. Single-pass. One source, one note, about three minutes.
-- **"Do a deep ingest of this paper."** Sense-making. The agent triages the source against what your vault already knows, deep-ingests it with block IDs, writes the sense-making notes, and sets the backlinks. Five to fifteen minutes for a real research paper.
-
-[Sense-making tutorial](https://pssah4.github.io/vault-operator/tutorials/deep-ingest) | [Block-level provenance concept](https://pssah4.github.io/vault-operator/concepts/provenance)
-
-### Search by meaning, not by filename
-
-A local vector index over your vault, plus full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker. Ask "what do I know about X?" and the agent finds notes whose meaning is related, even when none of them contain the words you used.
-
-The background analysis also surfaces note pairs that discuss similar topics without any wikilink between them, so you can spot connections you never wrote down.
-
-[Knowledge discovery guide](https://pssah4.github.io/vault-operator/guides/knowledge-discovery)
-
-### Build Word and Excel, draft PowerPoint (PPTX beta)
-
-Turn project notes into a Word document, structured data into Excel, or meeting notes into a draft PowerPoint deck. DOCX and XLSX output is clean and reliable. PPTX is in beta: corporate template cloning is not supported in this version, so treat client-facing decks as a starting point and finish them by hand.
-
-[Office documents guide](https://pssah4.github.io/vault-operator/guides/office-documents)
-
-### Keep the vault navigable
-
-The vault health check audits your knowledge graph for orphans, broken links, missing backlinks, weak clusters, inconsistent tags, and over-connected hubs. Findings come with actions: apply a mechanical fix, open a discussion with the agent, or dismiss. Every repair creates a checkpoint you can undo.
-
-[Vault health check guide](https://pssah4.github.io/vault-operator/guides/vault-health)
-
-### Stay in control
-
-Vault Operator is fail-closed. Write operations need your approval unless you opted into auto-approve for that category. Every task creates checkpoints in a shadow git repository (separate from your own git history). Click "Undo all changes" in the chat and the files go back. Sensitive folders are gated by a `.obsidian-agentignore` file at the vault root.
-
-[Safety and control guide](https://pssah4.github.io/vault-operator/guides/safety-control) | [Checkpoints concept](https://pssah4.github.io/vault-operator/concepts/checkpoints)
+#### 🔒 7. 本地优先与企业级安全（Local-First & Secure）
+- **零遥测**：无账号系统、无后台埋点与数据上传。
+- **系统级 Keychain 加密**：API Key 通过操作系统底层安全存储（macOS Keychain / Windows 凭据管理器）进行硬件级加密。
+- **完全离线支持**：无缝对接 Ollama、LM Studio 等本地开源大模型，断网环境亦可完全离线运行。
 
 ---
 
-## Try it
+### 🔌 支持的模型服务商
 
-Vault Operator requires Obsidian 1.8.7 or newer.
-
-1. **Install.** Obsidian Settings > Community Plugins > Browse > "Vault Operator" > Install + Enable.
-2. **Add a provider.** Settings > Vault Operator > Providers > Providers > "+ Add provider". A free [Google AI Studio](https://aistudio.google.com/app/apikey) key is enough to try everything.
-3. **Open the sidebar and ask a question.** "What are my most-linked notes?" works on any vault. The first-run wizard walks you through the rest.
-
-For semantic search and the ingest workflows, also configure an embedding model in Settings > Vault Operator > Providers > Embeddings. The [Quick start tutorial](https://pssah4.github.io/vault-operator/tutorials/getting-started) covers every step.
-
----
-
-## Documentation
-
-Full documentation lives at [pssah4.github.io/vault-operator](https://pssah4.github.io/vault-operator).
-
-For end users:
-
-- [Tutorials](https://pssah4.github.io/vault-operator/tutorials/getting-started). Step-by-step walkthroughs from first install to deep-ingest sense-making.
-- [Guides](https://pssah4.github.io/vault-operator/guides/capabilities). Reference for daily work.
-- [Reference](https://pssah4.github.io/vault-operator/reference/tools). Tools, providers, settings, troubleshooting.
-
-For developers:
-
-- [Codebase tour](https://pssah4.github.io/vault-operator/concepts/codebase-tour). Directory layout, reading order, Kilo Code heritage.
-- [Concepts](https://pssah4.github.io/vault-operator/concepts/). Agent loop, governance, knowledge layer, memory system, MCP architecture.
+| 提供商 | 推荐模型 | 特性优势 |
+| :--- | :--- | :--- |
+| **Anthropic** | Claude 3.7 Sonnet / 3.5 Sonnet | 卓越的复杂逻辑推理、结构规划与代码重构能力 |
+| **OpenAI** | GPT-4o / o1 / o3-mini | 极速响应、强大的多模态理解与深度思考链支持 |
+| **DeepSeek** | DeepSeek-V3 / DeepSeek-R1 | 极高性价比、顶尖中文语义理解与数学逻辑能力 |
+| **Google** | Gemini 2.0 Flash / Pro | 超长上下文窗口（百万 Token 级别）支持 |
+| **本地私有化** | Ollama / LM Studio | 100% 离线与数据隐私，支持 Qwen 2.5、Llama 3 等 |
+| **聚合网关** | OpenRouter / Groq / SiliconFlow | 灵活接入全球各大前沿开源与商业大模型 |
 
 ---
 
-## Building from source
+### 🚀 快捷键与使用技巧
 
+| 快捷操作 | 说明 |
+| :--- | :--- |
+| **`Cmd/Ctrl + Shift + I`** | 选中文本唤起行内 AI 悬浮动作栏（Inline AI） |
+| **`Enter` / `Cmd + Enter`** | 发送对话消息（可在设置中自由切换） |
+| **`Esc`** | 立即中断当前正在运行的 AI 任务 |
+| **`/`（斜杠）** | 在输入框快速联想预设 Prompt 模板与工作流 |
+| **`@`（艾特）** | 快速关联引用 Vault 内的笔记、文件夹或图片 |
+| **拖拽文件** | 直接将 PDF、图片或 Markdown 文件拖入输入框快速挂载 |
+
+---
+
+### 📦 安装指南
+
+#### 方式一：手动安装（推荐）
+1. 前往 [Releases](https://github.com/Deklan-Deng/nova-vault/releases) 页面下载最新的 `main.js`、`manifest.json`、`styles.css`；
+2. 打开你的 Obsidian 知识库目录，进入 `.obsidian/plugins/`；
+3. 创建名为 `vault-operator` 的文件夹，并将下载的 3 个文件放入其中；
+4. 打开 Obsidian，进入 **设置 -> 第三方插件**，启用 **Nova Vault** 即可开始使用。
+
+#### 方式二：本地开发与构建
 ```bash
-git clone https://github.com/pssah4/vault-operator.git
-cd vault-operator
+# 1. 克隆仓库
+git clone https://github.com/Deklan-Deng/nova-vault.git
+cd nova-vault
+
+# 2. 安装依赖
 npm install
+
+# 3. 生产打包
 npm run build
+
+# 4. 监听热编译（可在 .env 中配置 PLUGIN_DIR 自动部署到本地 Vault）
+npm run dev
 ```
 
-Then copy `main.js`, `manifest.json`, and `styles.css` from the repo root into `<vault>/.obsidian/plugins/vault-operator/`. For watch mode and auto-deploy during development, point `PLUGIN_DIR` in `.env` at your test vault and run `npm run dev`.
+---
 
-Requirements: Obsidian 1.8.7 or newer, desktop only, Node.js 18+ for building.
+## 🌐 English Documentation
+
+**Nova Vault** is a next-generation autonomous AI operating layer and intelligent knowledge hub designed exclusively for Obsidian. Combining the sleek, distraction-free minimalist design with deep local vector RAG, multi-step autonomous agent loops, long-term memory, and open MCP connectivity.
+
+### 🌟 Key Highlights
+
+- **Minimalist Aesthetic**: 1:1 minimalist typography, floating popover history menus, 16px rounded card composer, and distraction-free action lists.
+- **Deep Semantic RAG**: Vector embeddings, keyword search, and wikilink graph expansion locate notes by conceptual meaning.
+- **Autonomous Agent Loop**: Autonomous multi-step planning, file reading/writing, web fetching, and structured reporting with one-click undo checkpoints.
+- **Inline AI Copilot (`Cmd/Ctrl + Shift + I`)**: Select any text in notes to polish, expand, summarize, translate, or extract action items immediately.
+- **Full Safety Controls**: Fail-closed architecture with explicit approval gates for file writes, shell actions, and network calls.
+- **Vault Health Auditing**: Identifies and repairs orphan notes, broken links, missing backlinks, and over-connected hubs.
+- **Office & Canvas Automation**: Automatically generates Word (DOCX), Excel (XLSX), PowerPoint (PPTX), and Obsidian Canvas mindmaps.
+- **MCP Extensibility**: Connect to PostgreSQL databases, GitHub repositories, or turn Obsidian into an MCP server for Claude Desktop & ChatGPT.
+- **100% Local-First & Privacy**: Zero telemetry, no accounts. API keys encrypted using OS-native Keychains (`safeStorage`). Fully compatible with local LLMs (Ollama / LM Studio).
 
 ---
 
-## Network usage and local capabilities
+## 📜 致谢与开源协议 (Acknowledgements & License)
 
-Vault Operator is local-first. No telemetry, no analytics, no accounts.
+本项目基于开源社区优秀项目进行持续构建与重构，遵循 **Apache 2.0 开源许可证**：
 
-The plugin makes network requests in four situations, all under your control:
-
-- **LLM API calls** to the provider you configured (Anthropic, OpenAI, Google, AWS Bedrock, OpenRouter, Azure, GitHub Copilot OAuth, ChatGPT OAuth, Kilo Gateway, Ollama, LM Studio, or any OpenAI-compatible endpoint).
-- **Web search** (optional, disabled by default) when you use the `web_search` tool, going to Brave or Tavily.
-- **MCP servers** you connected explicitly, plus the optional remote-MCP relay if you want cross-surface workflows with ChatGPT or Claude Desktop.
-- **The skill registry**, when you open it in Settings and press Load catalogue or Install. It reads `catalog.json` and the skill package from `raw.githubusercontent.com`. Nothing is fetched on startup, no account is involved, and the request carries no information about you or your vault. Downloads are verified against the checksum in the catalogue before anything is written.
-
-Skills installed from the registry are not privileged. They install as `Registry`, and the agent still asks for approval before one of them changes anything, exactly as it does for a skill you wrote. Only the skills that ship inside the plugin are trusted.
-
-The plugin also uses a few Node.js capabilities that go beyond the standard Obsidian API: filesystem access for the local knowledge database and the office document pipeline, shadow git for checkpoints, sandbox process spawning for `evaluate_expression`, and optional LibreOffice spawning for presentation rendering. Two paths write outside the vault: device-local state under `~/.obsidian-agent/` and the checkpoint shadow repository next to the vault folder. Everything else stays under the vault path or the plugin data directory. Commands are fixed binaries with structured arguments; the agent does not construct shell commands from chat text.
-
-API keys are encrypted via Electron's `safeStorage` (OS keychain on macOS, Credential Manager on Windows, libsecret on Linux). Where `safeStorage` is not available, keys fall back to plain plugin settings.
-
----
-
-## License
-
-Apache 2.0.
-
-## Acknowledgements
-
-- [Kilo Code](https://kilocode.ai) for architectural inspiration.
-- [Obsidian](https://obsidian.md) as the platform.
-- [sql.js](https://github.com/sql-js/sql.js) for SQLite in WebAssembly powering the knowledge layer.
-- [Hugging Face Transformers.js](https://github.com/huggingface/transformers.js) for local ONNX reranking.
-- [isomorphic-git](https://isomorphic-git.org) for pure-JS git checkpoints.
-- [MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk) for the Model Context Protocol.
-
----
-
-# Vault Operator (中文)
-
-[English above / 返回英文版](#vault-operator)
-
-**面向你的知识库(vault)的智能体 AI 操作层。**
-
-<p align="center">
-  <img src="docs/public/vault-operator-demo.gif" alt="Obsidian 中的 Vault Operator:一个行内操作结合网络来源重写一个段落,随后侧边栏智能体把该主题变成一个带标签的 Canvas,以及一个由相关笔记、会议和人物组成的 Base" width="820">
-</p>
-
-你描述一个任务,它就会规划、搜索、阅读、写入并向你汇报。每一个操作都可见。每一次写入都需要你的批准。每一处改动都能一键撤销。
-
-免费。开源。本地优先。可以配合云端模型使用,可以用你现有的 ChatGPT 或 Copilot 订阅,也可以借助 Ollama 或 LM Studio 完全离线运行。
-
-[文档](https://pssah4.github.io/vault-operator) | [从 Obsidian 安装](obsidian://show-plugin?id=vault-operator) | [社区页面](https://community.obsidian.md/plugins/vault-operator)
-
-## 观看:智能体的内部工作原理
-
-一部 7 分钟的动画短片,带你走进整个系统:智能体循环、带五道闸门的 harness、工具、技能与 MCP,以及一个真实任务如何穿过每一层。点击观看(英文):
-
-<p align="center">
-  <a href="https://github.com/pssah4/vault-operator/releases/download/media/vault-operator-explainer.mp4">
-    <img src="https://github.com/pssah4/vault-operator/releases/download/media/explainer-poster.jpg" alt="Inside Vault Operator:7 分钟动画讲解智能体循环、harness、工具、技能与 MCP" width="820">
-  </a>
-</p>
-
----
-
-## 用户评价
-
-> "Vault Operator 可能是目前最好的 Obsidian 智能体 AI 插件。"
-> *Nick, Buy Me a Coffee*
-
-> "我刚发现你这个出色的插件,对我来说它远不只是一个简单的插件。它是 Obsidian 内部一个真正的运行框架(harness)。太棒了!"
-> *arkham000, GitHub*
-
-> "Vault Operator 是我至今试过的最有意思、最强大的 Obsidian 插件之一。智能体功能、知识库访问和文档处理的结合尤其令人印象深刻。"
-> *Stapledon-de, GitHub*
-
-> "很喜欢你在 Vault Operator 上做的工作。"
-> *mikaljrue, Buy Me a Coffee*
-
-> "Vault Operator 插件正是我一直在找的东西。能接入 MCP、支持各种模型和提供商、还有 skills 和工作流。我真的很期待上手试试。希望以后不用再靠 VS Code + GitHub Copilot 来帮我管理知识库了。"
-> *Buy Me a Coffee supporter*
-
-> "我才刚刚开始用,但这确实让我有动力重新回到 Obsidian。"
-> *hkocam, Buy Me a Coffee (译自德语)*
-
----
-
-## 你能得到什么
-
-聊天机器人读取你的提示词然后作答。Vault Operator 则运行一个循环:它挑选一个操作,在你的知识库上执行,把结果反馈给模型,如此持续,直到任务完成。
-
-- **行内 AI 聊天。** 在任意笔记中选中文本并按 Cmd+Shift+I(Windows 和 Linux 上是 Ctrl+Shift+I),或右键选择 "Inline AI chat",即可打开一个锚定在选区上方的悬浮聊天面板。该面板运行与侧边栏相同的智能体循环(skills、MCP、记忆),并附带若干快捷操作:Lookup(知识库搜索,可选网络回退)、Rewrite、Translate、Summarize 和 Find action items。自 v3.0.0 起可用。[Chat interface guide](https://pssah4.github.io/vault-operator/guides/chat-interface)。
-- **同时运行多个聊天。** 在各自的标签页中打开彼此独立的对话,每个对话都有自己的模式和附件。一个长时间运行的任务会在某个标签页里持续工作,同时你可以开启另一个;被中断的运行会从历史记录中恢复。自 v3.3.1 起可用。
-- **以块级溯源捕获来源。** 把一个 PDF 拖进聊天,你会得到一份来源笔记,其中每一条关键论断都链接回原文中确切的段落。
-- **把网页剪藏进你的知识库。** 给智能体一个 URL,它就会把整个页面存档为一份 Markdown 笔记,把其中的图片作为真实的知识库文件下载下来,并把链接改写为指向本地副本。自 v3.3.6 起可用。
-- **跨会话的三层记忆。** 短期会话摘要、在重置后依然保留的持久事实,以及一份 soul 档案,记录你如何写作、以及你希望智能体如何行事。
-- **按含义查找笔记,而不是按文件名。** 本地向量索引、全文关键词搜索、通过 wikilinks 进行的图谱扩展,以及本地 cross-encoder 重排器(reranker),再用加权 RRF 组合在一起。
-- **生成 Word 和 Excel 文件,起草 PowerPoint 演示(PPTX 处于 beta 阶段)。** 把项目笔记变成 DOCX,把结构化数据变成 XLSX,或把会议记录变成 PPTX 草稿。
-- **运行知识库健康检查。** 找出孤立笔记、失效链接、缺失的反向链接、薄弱的聚类,以及连接过多的枢纽节点。每一次修复都会创建一个可以撤销的检查点。
-- **从 ChatGPT、Claude Desktop 或 Perplexity 使用你的知识库。** Vault Operator 可以作为 MCP 服务器运行,因此你的其他 AI 客户端可以读取与 Obsidian 内智能体相同的记忆和历史。
-- **通过自动批准掌控大权。** 默认 fail-closed(默认拒绝)。可按类别分别开关:read、write、plugin-API、command、MCP 和 web。一个统一的权限中心会列出智能体持有的每一项单独授权,方便你审查并撤销其中任意一项。敏感文件夹由一个 `.obsidian-agentignore` 文件把关。
-- **复用 Obsidian 已经暴露的能力。** Plugin-API 发现机制让智能体可以调用已安装的插件(Excalidraw、Dataview、Tasks),而不必重复实现它们的功能。
-
----
-
-## 它为知识工作做了什么
-
-### 带溯源地捕获来源
-
-把一个 PDF 或 Markdown 来源拖进聊天,然后请求做一次 ingest。智能体会生成一份干净的来源笔记,在每一条关键论断上都带有 block ID,因此每个事实都能链接回原文中确切的段落。
-
-两条路径:
-
-- **"Ingest this PDF as a source note."** 用于快速捕获。单次处理。一个来源、一份笔记,大约三分钟。
-- **"Do a deep ingest of this paper."** 用于意义构建。智能体会先对来源做分诊,对照你知识库里已有的内容做出决策,然后带着 block ID 做深度 ingest,写出意义构建笔记,并设置反向链接。对一篇真正的研究论文来说需要五到十五分钟。
-
-[Sense-making tutorial](https://pssah4.github.io/vault-operator/tutorials/deep-ingest) | [Block-level provenance concept](https://pssah4.github.io/vault-operator/concepts/provenance)
-
-### 按含义搜索,而不是按文件名
-
-在你的知识库上建立本地向量索引,再加上全文关键词搜索、通过 wikilinks 进行的图谱扩展,以及本地 cross-encoder 重排器。问一句 "what do I know about X?",智能体就会找出含义相关的笔记,哪怕它们一个都不包含你用过的词。
-
-后台分析还会找出那些讨论相似主题、但彼此之间没有任何 wikilink 的笔记对,让你发现自己从未写下来的联系。
-
-[Knowledge discovery guide](https://pssah4.github.io/vault-operator/guides/knowledge-discovery)
-
-### 生成 Word 和 Excel,起草 PowerPoint(PPTX beta)
-
-把项目笔记变成 Word 文档,把结构化数据变成 Excel,或把会议记录变成 PowerPoint 演示草稿。DOCX 和 XLSX 的输出干净可靠。PPTX 处于 beta 阶段:此版本不支持克隆企业模板,因此请把面向客户的演示当作一个起点,再手动完成收尾。
-
-[Office documents guide](https://pssah4.github.io/vault-operator/guides/office-documents)
-
-### 让知识库保持可导航
-
-知识库健康检查会审查你的知识图谱,查找孤立笔记、失效链接、缺失的反向链接、薄弱的聚类、不一致的标签,以及连接过多的枢纽节点。每条发现都附带操作:应用一个机械化修复、与智能体展开讨论,或忽略。每一次修复都会创建一个可以撤销的检查点。
-
-[Vault health check guide](https://pssah4.github.io/vault-operator/guides/vault-health)
-
-### 保持掌控
-
-Vault Operator 是 fail-closed 的。写操作需要你的批准,除非你已为该类别选择了自动批准。每个任务都会在一个影子 git 仓库(与你自己的 git 历史相互独立)中创建检查点。在聊天里点击 "Undo all changes",文件就会还原。敏感文件夹由知识库根目录下的一个 `.obsidian-agentignore` 文件把关。
-
-[Safety and control guide](https://pssah4.github.io/vault-operator/guides/safety-control) | [Checkpoints concept](https://pssah4.github.io/vault-operator/concepts/checkpoints)
-
----
-
-## 试一试
-
-Vault Operator 需要 Obsidian 1.8.7 或更新版本。
-
-1. **安装。** Obsidian Settings > Community Plugins > Browse > "Vault Operator" > Install + Enable。
-2. **添加一个提供商。** Settings > Vault Operator > Providers > Providers > "+ Add provider"。一个免费的 [Google AI Studio](https://aistudio.google.com/app/apikey) 密钥就足以试用所有功能。
-3. **打开侧边栏并提一个问题。** "What are my most-linked notes?" 在任何知识库上都能用。首次运行向导会带你完成其余步骤。
-
-若要使用语义搜索和 ingest 工作流,还需要在 Settings > Vault Operator > Providers > Embeddings 中配置一个 embedding 模型。[Quick start tutorial](https://pssah4.github.io/vault-operator/tutorials/getting-started) 涵盖了每一个步骤。
-
----
-
-## 文档
-
-完整文档位于 [pssah4.github.io/vault-operator](https://pssah4.github.io/vault-operator)。
-
-面向终端用户:
-
-- [Tutorials](https://pssah4.github.io/vault-operator/tutorials/getting-started)。从首次安装到用深度 ingest 做意义构建的分步演练。
-- [Guides](https://pssah4.github.io/vault-operator/guides/capabilities)。日常工作的参考。
-- [Reference](https://pssah4.github.io/vault-operator/reference/tools)。工具、提供商、设置、故障排查。
-
-面向开发者:
-
-- [Codebase tour](https://pssah4.github.io/vault-operator/concepts/codebase-tour)。目录结构、阅读顺序、Kilo Code 的传承。
-- [Concepts](https://pssah4.github.io/vault-operator/concepts/)。智能体循环、治理、知识层、记忆系统、MCP 架构。
-
----
-
-## 从源码构建
-
-```bash
-git clone https://github.com/pssah4/vault-operator.git
-cd vault-operator
-npm install
-npm run build
-```
-
-然后把仓库根目录下的 `main.js`、`manifest.json` 和 `styles.css` 复制到 `<vault>/.obsidian/plugins/vault-operator/`。若要在开发过程中使用 watch 模式和自动部署,请把 `.env` 里的 `PLUGIN_DIR` 指向你的测试知识库,然后运行 `npm run dev`。
-
-要求:Obsidian 1.8.7 或更新版本,仅限桌面端,构建需要 Node.js 18+。
-
----
-
-## 网络使用与本地能力
-
-Vault Operator 是本地优先的。没有遥测,没有分析统计,没有账户。
-
-插件会在三种情形下发起网络请求,全都在你的掌控之下:
-
-- **LLM API 调用**,发往你配置的提供商(Anthropic、OpenAI、Google、AWS Bedrock、OpenRouter、Azure、GitHub Copilot OAuth、ChatGPT OAuth、Kilo Gateway、Ollama、LM Studio,或任何 OpenAI 兼容的端点)。
-- **网络搜索**(可选,默认关闭),当你使用 `web_search` 工具时,会发往 Brave 或 Tavily。
-- **MCP 服务器**,即你显式连接的那些,外加可选的远程 MCP 中继(remote-MCP relay),供你想要在 ChatGPT 或 Claude Desktop 之间进行跨界面工作流时使用。
-
-插件还使用了少数几项超出标准 Obsidian API 的 Node.js 能力:为本地知识数据库和 office 文档流水线提供的文件系统访问、用于检查点的影子 git、为 `evaluate_expression` 启动的沙箱进程,以及用于渲染演示文稿的可选 LibreOffice 进程。所有写入都保持在知识库路径或插件数据目录之内。命令都是带有结构化参数的固定二进制程序;智能体不会用聊天文本拼出 shell 命令。
-
-API 密钥通过 Electron 的 `safeStorage` 加密(macOS 上是系统钥匙串,Windows 上是凭据管理器,Linux 上是 libsecret)。在 `safeStorage` 不可用的地方,密钥会回退到明文的插件设置中。
-
----
-
-## 许可证
-
-Apache 2.0。
-
-## 致谢
-
-- [Kilo Code](https://kilocode.ai),感谢其在架构上的启发。
-- [Obsidian](https://obsidian.md),作为平台。
-- [sql.js](https://github.com/sql-js/sql.js),以 WebAssembly 中的 SQLite 驱动知识层。
-- [Hugging Face Transformers.js](https://github.com/huggingface/transformers.js),用于本地 ONNX 重排。
-- [isomorphic-git](https://isomorphic-git.org),用于纯 JS 的 git 检查点。
-- [MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk),用于 Model Context Protocol。
+- 基于并致谢 [Vault Operator](https://github.com/pssah4/vault-operator) by [@pssah4](https://github.com/pssah4)
+- 致谢 [Kilo Code](https://github.com/Kilo-Code/kilo-code) 提供的架构与设计启发
+- 遵循 [Apache License 2.0](LICENSE) 开源协议，欢迎提交 Issue 与 Pull Request！
