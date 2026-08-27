@@ -31,7 +31,7 @@ import { parseSkillFrontmatterBlock, splitSkillFrontmatter } from './skillFrontm
 
 /** Where the catalogue lives. One host, named once. */
 export const REGISTRY_BASE_URL =
-    'https://raw.githubusercontent.com/pssah4/vault-operator-skill-registry/main';
+    'https://raw.githubusercontent.com/KD-Leon/nova-vault-skill-registry/main';
 
 /** Hard cap per package. The real ones are 1 to 90 KB; this is a sanity bound. */
 export const MAX_PACKAGE_BYTES = 5 * 1024 * 1024;
