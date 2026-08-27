@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="docs/public/assets/duck.svg" width="120" alt="Nova Vault duck mascot">
-  <h1 align="center">Nova Vault</h1>
+  <img src="docs/public/assets/duck.svg" width="120" alt="Rubber Duck mascot">
+  <h1 align="center">Rubber Duck 橡皮鸭</h1>
   <p align="center">
     <strong>极简美学设计 · 深度知识库 RAG 与自主 Multi-Agent 智能体</strong>
   </p>
@@ -23,7 +23,7 @@
 
 ## 🇨🇳 中文说明
 
-**Nova Vault** 是一款专为 Obsidian 打造的下一代自主 AI 智能体与知识库中枢。它不仅拥有极具呼吸感、克制优雅的 **极简交互界面**，更将深度语义检索（Vector RAG）、自主多步推理循环（Agent Loop）、长期记忆事实库与标准化 MCP（Model Context Protocol）协议深度融合，让你在本地笔记中拥有超越商业级 AI 助手的全能知识管理体验。
+**橡皮鸭 (Rubber Duck)** 是一款专为 Obsidian 打造的下一代自主 AI 智能体与知识库中枢。它不仅拥有极具呼吸感、克制优雅的 **极简交互界面**，更将深度语义检索（Vector RAG）、自主多步推理循环（Agent Loop）、长期记忆事实库与标准化 MCP（Model Context Protocol）协议深度融合，让你在本地笔记中拥有超越商业级 AI 助手的全能知识管理体验。
 
 ---
 
@@ -97,7 +97,7 @@
 1. 前往 [Releases](https://github.com/Deklan-Deng/nova-vault/releases) 页面下载最新的 `main.js`、`manifest.json`、`styles.css`；
 2. 打开你的 Obsidian 知识库目录，进入 `.obsidian/plugins/`；
 3. 创建名为 `vault-operator` 的文件夹，并将下载的 3 个文件放入其中；
-4. 打开 Obsidian，进入 **设置 -> 第三方插件**，启用 **Nova Vault** 即可开始使用。
+4. 打开 Obsidian，进入 **设置 -> 第三方插件**，启用 **Rubber Duck (橡皮鸭)** 即可开始使用。
 
 #### 方式二：本地开发与构建
 ```bash
@@ -119,7 +119,7 @@ npm run dev
 
 ## 🌐 English Documentation
 
-**Nova Vault** is a next-generation autonomous AI operating layer and intelligent knowledge hub designed exclusively for Obsidian. Combining the sleek, distraction-free minimalist design with deep local vector RAG, multi-step autonomous agent loops, long-term memory, and open MCP connectivity.
+**Rubber Duck** is a next-generation autonomous AI operating layer and intelligent knowledge hub designed exclusively for Obsidian. Combining the sleek, distraction-free minimalist design with deep local vector RAG, multi-step autonomous agent loops, long-term memory, and open MCP connectivity.
 
 ### 🌟 Key Highlights
 

@@ -292,7 +292,7 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         // message instead of pretending to rollback.
         callbacks.pushToolResult(this.formatError(new Error(
             'Automatic rollback is not available in this plugin build. ' +
-            'To revert: reinstall Nova Vault via BRAT (Add Beta Plugin -> https://github.com/KD-Leon/nova-vault) ' +
+            'To revert: reinstall Rubber Duck via BRAT (Add Beta Plugin -> https://github.com/KD-Leon/nova-vault) ' +
             `or via the Community Plugins directory. If you kept your own ${BUNDLE_BACKUP_FILENAME} before applying the patch, copy it back into the plugin folder manually and reload.`
         )));
         callbacks.log('manage_source: rollback advised manual restore');

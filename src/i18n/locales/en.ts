@@ -1197,7 +1197,7 @@ export const en = {
     // =========================================================================
     // Chat UI -- Sidebar
     // =========================================================================
-    'ui.sidebar.title': 'Nova Vault',
+    'ui.sidebar.title': 'Rubber Duck',
     'ui.sidebar.forcedWorkflowChipLabel': 'Forced: /{{slug}}',
     'ui.sidebar.forcedWorkflowChipTooltip': 'Forced workflow: runs on every message in this agent. Turn it off on its pin in the + menu.',
     'ui.sidebar.settings': 'Settings',
@@ -1254,7 +1254,7 @@ export const en = {
     'ui.sidebar.noModelsEnabled': 'No models enabled, open settings',
     'ui.sidebar.useGlobalDefault': 'Use global default ({{label}})',
     'ui.sidebar.globalDefault': 'Global default',
-    'ui.sidebar.working': 'Nova is feeling the warmth of words…',
+    'ui.sidebar.working': 'Rubber is feeling the warmth of words…',
     'ui.sidebar.reasoning': 'Thinking process',
     'ui.sidebar.reasoningCollapsed': 'Thinking process',
     'ui.sidebar.analyzing': 'Analyzing results\u2026',
@@ -1735,7 +1735,7 @@ export const en = {
     // =========================================================================
     // Main Plugin
     // =========================================================================
-    'plugin.ribbonTooltip': 'Nova Vault',
+    'plugin.ribbonTooltip': 'Rubber Duck',
     'plugin.commandOpen': 'Open agent sidebar',
     'plugin.commandNewChat': 'New chat session (parallel)',
     'plugin.commandCloudSync': 'Cloud storage: sync folder now',
@@ -2759,7 +2759,7 @@ export const en = {
     'settings.memory.sourceChatgpt': 'ChatGPT',
     'settings.memory.sourceClaudeAi': 'Claude.ai',
     'settings.memory.sourceClaudeCode': 'Claude Code',
-    'settings.memory.sourceObsilo': 'Vault Operator (internal)',
+    'settings.memory.sourceObsilo': 'Rubber Duck (internal)',
     'settings.memory.sourcePerplexity': 'Perplexity',
     'settings.memory.sourceUnknown': 'Unknown source',
     'settings.memory.strictIsolation': 'Strict source isolation for recall',
@@ -3114,7 +3114,7 @@ export const en = {
     'ui.history.sourceChatgpt': 'ChatGPT',
     'ui.history.sourceClaudeAi': 'Claude.ai',
     'ui.history.sourceClaudeCode': 'Claude Code',
-    'ui.history.sourceObsilo': 'Vault Operator',
+    'ui.history.sourceObsilo': 'Rubber Duck',
     'ui.history.sourcePerplexity': 'Perplexity',
     'ui.history.sourceUnknown': 'Unknown',
     'ui.history.threadChip': 'Thread {{id}}',
@@ -3195,12 +3195,12 @@ export const en = {
     'ui.inline.tagPrompt': 'Prompt',
     'ui.inline.tagSkill': 'Skill',
     'ui.inline.tagWorkflow': 'Workflow',
-    'ui.sidebar.aiDisclaimer': 'Vault Operator is AI and can make mistakes. Please double-check responses.',
+    'ui.sidebar.aiDisclaimer': 'Rubber Duck is AI and can make mistakes. Please double-check responses.',
     'ui.sidebar.insertPrompt': 'Insert prompt...',
     'ui.sidebar.insertSkill': 'Insert skill...',
     'ui.sidebar.insertWorkflow': 'Insert workflow...',
     'ui.sidebar.nextChat': 'Next chat',
-    'ui.sidebar.preparingServices': 'Vault Operator is preparing services...',
+    'ui.sidebar.preparingServices': 'Rubber Duck is preparing services...',
     'ui.sidebar.previousChat': 'Previous chat',
 
     // =========================================================================

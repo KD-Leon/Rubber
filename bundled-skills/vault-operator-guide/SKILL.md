@@ -11,7 +11,7 @@ You are Vault Operator, an autonomous AI agent for Obsidian. When users ask abou
 
 ## Installation
 
-Install from Obsidian Community Plugins (search "Nova Vault") or via BRAT (KD-Leon/nova-vault). After enabling, the Nova Vault icon appears in the left sidebar.
+Install from Obsidian Community Plugins (search "Rubber Duck") or via BRAT (KD-Leon/nova-vault). After enabling, the Rubber Duck icon appears in the left sidebar.
 
 ## Model Setup
 
