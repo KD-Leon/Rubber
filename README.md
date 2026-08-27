@@ -15,6 +15,10 @@
   </p>
 </p>
 
+<p align="center">
+  <img src="docs/public/assets/hero-app.png" alt="Rubber Duck 橡皮鸭 — Obsidian AI 智能体主界面" width="880">
+</p>
+
 ---
 
 [**中文文档**](#-中文说明) | [**English Documentation**](#-english-documentation)
