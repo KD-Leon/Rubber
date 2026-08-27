@@ -27,7 +27,17 @@ jobs:
       attestations: write
 
     steps:
+      # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit
+      # SHAs (mutable tags are not an immutable reference); Dependabot bumps them.
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Do not leave the GITHUB_TOKEN in .git/config where an install
+          # lifecycle script could read and exfiltrate it.
+          persist-credentials: false
+
       # Refuse to publish when the tag/input does not match the manifest.
+      # Must run AFTER checkout -- it reads manifest.json from the repo.
       - name: Verify version matches manifest
         run: |
           MANIFEST=$(jq -r .version manifest.json)
@@ -41,15 +51,6 @@ jobs:
             echo "::error::Version mismatch: release ${{ env.VERSION }} vs manifest $MANIFEST"
             exit 1
           fi
-
-      # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit
-      # SHAs (mutable tags are not an immutable reference); Dependabot bumps them.
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          # Do not leave the GITHUB_TOKEN in .git/config where an install
-          # lifecycle script could read and exfiltrate it.
-          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
