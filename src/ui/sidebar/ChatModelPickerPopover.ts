@@ -97,23 +97,11 @@ export class ChatModelPickerPopover {
         popover.className = 'tool-picker-popover chat-model-picker';
         this.popoverEl = popover;
 
-        // ── Header ───────────────────────────────────────────────────────
-        const header = popover.createDiv('tool-picker-header');
-        header.createSpan({
-            cls: 'tool-picker-title',
-            text: t('ui.sidebar.modelPickerTitle', {
-                provider: provider.displayName ?? provider.type,
-            }),
-        });
-
         // ── Provider switcher (issue #48.5) ──────────────────────────────
         // Only shown when more than one provider is enabled. Switching is a
         // global change (settings.activeProviderId); the caller persists it and
         // re-opens the picker on the newly active provider.
         if (providerNav && providerNav.items.length > 1) {
-            // Dropdown instead of a chip row (IMP-26-05-01): with many enabled
-            // providers the chips wrapped over two lines and pushed the model
-            // list down; a select scales without eating vertical space.
             const navRow = popover.createDiv('chat-model-picker-providers');
             const dropdown = new DropdownComponent(navRow);
             for (const item of providerNav.items) {
@@ -126,23 +114,13 @@ export class ChatModelPickerPopover {
             });
         }
 
-        // ── Search input ─────────────────────────────────────────────────
-        const searchInput = popover.createEl('input', {
-            cls: 'tool-picker-search',
-            attr: {
-                placeholder: t('ui.sidebar.modelPickerSearch'),
-                type: 'text',
-                spellcheck: 'false',
-            },
-        });
-
         // ── Scroll body ──────────────────────────────────────────────────
         const scrollEl = popover.createDiv('tool-picker-scroll');
 
         const current = callbacks.getCurrent();
         const advisorDisabled = !(provider.tierOverrides?.flagship ?? provider.tierMapping?.flagship);
 
-        // Auto row (always first, never filtered out)
+        // Auto row (always first)
         const autoRow = this.makeAutoRow(scrollEl, current === null, advisorDisabled);
         autoRow.addEventListener('click', () => {
             callbacks.onSelect(null);
@@ -153,20 +131,12 @@ export class ChatModelPickerPopover {
         // so manually typed tier-override ids (providers without a model
         // listing endpoint) are visible and pinnable like discovered models.
         const pickerRows = buildChatModelPickerRows(provider);
-        const modelRows: Array<{ row: HTMLElement; needle: string }> = [];
         for (const { model: m, manual } of pickerRows) {
             const row = this.makeModelRow(scrollEl, m, current, manual);
             row.addEventListener('click', () => {
                 callbacks.onSelect(m.id);
                 this.close();
             });
-            const needle = [
-                m.id,
-                m.displayName ?? '',
-                m.autoTier ?? '',
-                manual ? t('ui.sidebar.modelPickerManual') : '',
-            ].join(' ').toLowerCase();
-            modelRows.push({ row, needle });
         }
 
         // Empty-state hint when the provider has no discovered models yet
@@ -177,33 +147,11 @@ export class ChatModelPickerPopover {
             });
         }
 
-        // ── Live filter ──────────────────────────────────────────────────
-        const applyFilter = () => {
-            const q = searchInput.value.trim().toLowerCase();
-            for (const { row, needle } of modelRows) {
-                const match = q === '' || needle.includes(q);
-                row.classList.toggle('agent-u-hidden', !match);
-            }
-        };
-        searchInput.addEventListener('input', applyFilter);
-
         // ── Thinking switch + reasoning-effort slider (per conversation) ──
-        // Thinking is a binary On/Off pill switch. The effort slider is built
-        // only when the model is effort-capable, and its row is shown only
-        // while thinking is On. Flipping the switch toggles the row live.
         const levels = callbacks.getEffortLevels();
         const effortCapable = levels.length > 0;
 
-        // Build the effort row once (if the model can send effort) so the
-        // switch can show/hide it without rebuilding the DOM. IMP-54-05a
-        // (issue #54): when the model cannot, a one-line hint takes the
-        // slider's slot instead -- telling the user to pin a model (Auto
-        // active) or to enable effort for this model in the provider
-        // settings (custom endpoints, IMP-54-05b). The pin state is fixed
-        // while the popover is open (selecting a row closes it), only the
-        // thinking switch toggles the row live.
         const effortRow = effortCapable ? this.makeEffortControl(popover, callbacks, levels) : null;
-        const effortHint = effortCapable ? null : popover.createDiv('chat-model-picker-effort-hint');
 
         const syncEffortRowVisibility = () => {
             const visibility = effortControlVisibility(
@@ -215,47 +163,28 @@ export class ChatModelPickerPopover {
                 effortRow.wrap.classList.toggle('agent-u-hidden', visibility !== 'control');
                 if (visibility === 'control') effortRow.sync();
             }
-            if (effortHint) {
-                const showHint = visibility === 'hint-pin' || visibility === 'hint-model';
-                effortHint.classList.toggle('agent-u-hidden', !showHint);
-                if (showHint) {
-                    effortHint.setText(visibility === 'hint-pin'
-                        ? t('ui.sidebar.effortAutoHint')
-                        : t('ui.sidebar.effortHintOptIn'));
-                }
-            }
         };
 
         this.makeThinkingControl(popover, callbacks, syncEffortRowVisibility);
         syncEffortRowVisibility();
 
-        // ── Keyboard: Esc closes, Enter selects first visible ───────────
+        // ── Keyboard: Esc closes ─────────────────────────────────────────
         this.keyHandler = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 this.close();
-                return;
-            }
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const firstVisible = modelRows.find(({ row }) => !row.classList.contains('agent-u-hidden'));
-                if (firstVisible) firstVisible.row.click();
-                else autoRow.click();
             }
         };
-        searchInput.addEventListener('keydown', this.keyHandler);
+        popover.addEventListener('keydown', this.keyHandler);
 
         // ── Mount + position ────────────────────────────────────────────
         activeDocument.body.appendChild(popover);
         const reposition = () => {
             positionPopover(popover, anchorBtn, containerEl, {
-                cssPrefix: '--tp', maxWidth: 400, minVisibleHeight: 240, extraWidthVars: true,
+                cssPrefix: '--tp', maxWidth: 320, minVisibleHeight: 200, extraWidthVars: true,
             });
         };
         reposition();
-
-        // Focus search on open
-        window.setTimeout(() => searchInput.focus(), 30);
 
         // Dismiss lifecycle: outside click, Escape, resize (IMP-02-12-03).
         this.dismisser.attach({
@@ -281,18 +210,11 @@ export class ChatModelPickerPopover {
 
     private makeAutoRow(scrollEl: HTMLElement, isCurrent: boolean, advisorDisabled: boolean): HTMLElement {
         const row = scrollEl.createDiv({
-            cls: 'tp-item-row chat-model-picker-row chat-model-picker-auto',
+            cls: `tp-item-row chat-model-picker-row ${isCurrent ? 'is-selected' : ''}`,
         });
-        const iconEl = row.createSpan('tp-item-icon');
-        setIcon(iconEl, 'sparkles');
         const labelWrap = row.createDiv('tp-item-label-wrap');
-        labelWrap.createDiv({ cls: 'tp-item-label', text: t('ui.sidebar.modelAuto') });
-        labelWrap.createDiv({
-            cls: 'tp-item-desc',
-            text: advisorDisabled
-                ? t('ui.sidebar.modelAdvisorDisabled')
-                : t('ui.sidebar.modelAutoTitle'),
-        });
+        const labelLine = labelWrap.createDiv('tp-item-label');
+        labelLine.createSpan({ cls: 'tp-model-name', text: t('ui.sidebar.modelAuto') });
         if (isCurrent) {
             const check = row.createSpan('chat-model-picker-check');
             setIcon(check, 'check');
@@ -306,10 +228,14 @@ export class ChatModelPickerPopover {
         currentOverride: string | null,
         manual = false,
     ): HTMLElement {
-        const row = scrollEl.createDiv({ cls: 'tp-item-row chat-model-picker-row' });
+        const isSelected = currentOverride === m.id;
+        const row = scrollEl.createDiv({
+            cls: `tp-item-row chat-model-picker-row ${isSelected ? 'is-selected' : ''}`,
+        });
+
         const labelWrap = row.createDiv('tp-item-label-wrap');
         const labelLine = labelWrap.createDiv('tp-item-label');
-        labelLine.createSpan({ text: m.displayName ?? m.id });
+        labelLine.createSpan({ cls: 'tp-model-name', text: m.displayName ?? m.id });
         if (m.autoTier) {
             const tier = labelLine.createSpan({
                 cls: `chat-model-picker-tier chat-model-picker-tier-${m.autoTier}`,
@@ -330,7 +256,7 @@ export class ChatModelPickerPopover {
         if (m.displayName && m.displayName !== m.id) {
             labelWrap.createDiv({ cls: 'tp-item-desc', text: m.id });
         }
-        if (currentOverride === m.id) {
+        if (isSelected) {
             const check = row.createSpan('chat-model-picker-check');
             setIcon(check, 'check');
         }

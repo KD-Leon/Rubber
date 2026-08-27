@@ -46,27 +46,88 @@ export class MemoryTab {
         this.migrationModelKey = plugin.settings.memory.memoryModelKey ?? '';
     }
 
-    private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
-        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
-        setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
-        infoText.createEl('strong', { text: t('settings.memory.introTitle') });
-        infoText.createDiv({ text: t('settings.memory.introDesc') });
+    private buildHeader(containerEl: HTMLElement): void {
+        const header = containerEl.createDiv('agent-settings-header');
+        header.createEl('h3', { text: '智能记忆与会话历史', cls: 'agent-settings-title' });
+        header.createEl('p', {
+            text: 'AI 智能体会随着日常对话逐步记住你的偏好、知识背景和常用指令，并在后续回答中自动参考。',
+            cls: 'agent-settings-desc',
+        });
     }
 
     build(containerEl: HTMLElement): void {
-        this.buildIntroSection(containerEl);
+        this.buildHeader(containerEl);
 
+        const mem = this.plugin.settings.memory;
+
+        // ── 🧠 长期记忆管理 ─────────────────────────────────────────────
+        const memorySection = containerEl.createDiv('agent-memory-core');
         addSectionHeading(
-            containerEl,
-            t('settings.memory.headingHistory'),
-            { body: t('settings.memory.sectionHistoryInfo') },
+            memorySection,
+            '长期记忆（Memory）',
+            { body: '允许 AI 提炼并长期记住你的个人习惯、背景信息与指令偏好。' },
         );
 
-        new Setting(containerEl)
-            .setName(t('settings.memory.enableHistory'))
-            .setDesc(t('settings.memory.enableHistoryDesc'))
+        new Setting(memorySection)
+            .setName('启用长期记忆')
+            .setDesc('开启后，AI 将在对话中自动检索并应用相关的历史记忆。')
+            .addToggle((t) =>
+                t.setValue(mem.enabled).onChange(async (v) => {
+                    this.plugin.settings.memory.enabled = v;
+                    await this.plugin.saveSettings();
+                    this.rerender();
+                }),
+            );
+
+        if (mem.enabled) {
+            new Setting(memorySection)
+                .setName('自动从对话中提炼记忆')
+                .setDesc('在对话进行一段后，自动提取有价值的偏好与事实存入记忆库。')
+                .addToggle((t) =>
+                    t.setValue(mem.autoExtractSessions).onChange(async (v) => {
+                        this.plugin.settings.memory.autoExtractSessions = v;
+                        await this.plugin.saveSettings();
+                        this.rerender();
+                    }),
+                );
+
+            // 查看与管理记忆库
+            new Setting(memorySection)
+                .setName('查看与管理记忆库')
+                .setDesc('浏览、搜索并管理 AI 目前记住的所有事实与习惯。')
+                .addButton((b) =>
+                    b.setButtonText('查看记忆库').onClick(async () => {
+                        const { MemoryViewerModal } = await import('../modals/MemoryViewerModal');
+                        new MemoryViewerModal(this.app, this.plugin).open();
+                    }),
+                );
+
+            // 清空记忆库
+            new Setting(memorySection)
+                .setName('清空所有记忆')
+                .setDesc('一键清除 AI 记住的所有个人偏好与事实数据（不可撤回）。')
+                .addButton((b) => {
+                    b.setButtonText('清空记忆');
+                    b.setWarning();
+                    b.onClick(async () => {
+                        const { confirmAndWipeAllMemory } = await import('../modals/wipeAllMemory');
+                        await confirmAndWipeAllMemory(this.app, this.plugin);
+                        this.rerender();
+                    });
+                });
+        }
+
+        // ── 💬 会话历史管理 ─────────────────────────────────────────────
+        const historySection = containerEl.createDiv('agent-history-core');
+        addSectionHeading(
+            historySection,
+            '会话历史记录',
+            { body: '管理本地侧边栏的所有对话会话记录。' },
+        );
+
+        new Setting(historySection)
+            .setName('保存会话历史')
+            .setDesc('允许在关闭 Obsidian 或切换主题后继续恢复之前的对话。')
             .addToggle((t) =>
                 t.setValue(this.plugin.settings.enableChatHistory).onChange(async (v) => {
                     this.plugin.settings.enableChatHistory = v;
@@ -77,185 +138,90 @@ export class MemoryTab {
         const store = this.plugin.conversationStore;
         if (store) {
             const count = store.count();
-            new Setting(containerEl)
-                .setName(t('settings.memory.storedConversations'))
-                .setDesc(t('settings.memory.storedConversationsDesc', { count }))
+            new Setting(historySection)
+                .setName('已存储的对话')
+                .setDesc(`当前已保存 ${count} 个会话。`)
                 .addButton((b) =>
-                    b.setButtonText(t('settings.memory.clearAll')).onClick(async () => {
+                    b.setButtonText('清空全部对话').onClick(async () => {
+                        const ok = await confirmModal(this.app, {
+                            title: '清空所有会话历史',
+                            message: '确定要删除所有的历史对话记录吗？此操作无法撤销。',
+                            confirmLabel: '确认清空',
+                            cancelLabel: '取消',
+                        });
+                        if (!ok) return;
                         await store.deleteAll();
-                        new Notice(t('settings.memory.allConversationsDeleted'));
+                        new Notice('所有会话历史已清空');
                         this.rerender();
                     }),
                 );
         }
 
-        addSectionHeading(
-            containerEl,
-            t('settings.memory.headingMemory'),
-            { body: t('settings.memory.sectionMemoryInfo') },
-        );
+        // ── ⚙️ 高级配置与向导（折叠收纳） ─────────────────────────
+        const advancedDetails = containerEl.createEl('details', { cls: 'agent-permissions-advanced' });
+        advancedDetails.createEl('summary', { text: '⚙️ 高级提取规则与向导（点击展开）' });
+        const advancedBody = advancedDetails.createDiv('agent-permissions-advanced-body');
 
-        const mem = this.plugin.settings.memory;
-
-        new Setting(containerEl)
-            .setName(t('settings.memory.enableMemory'))
-            .setDesc(t('settings.memory.enableMemoryDesc'))
-            .addToggle((t) =>
-                t.setValue(mem.enabled).onChange(async (v) => {
-                    this.plugin.settings.memory.enabled = v;
+        if (mem.enabled && mem.autoExtractSessions) {
+            const minMessagesSetting = new Setting(advancedBody)
+                .setName('自动提取触发阈值（消息数）')
+                .setDesc('单次对话中最少达到多少条消息后才开始提炼记忆。');
+            addSliderInput(minMessagesSetting, {
+                min: 2, max: 20, step: 1,
+                value: mem.extractionThreshold,
+                onChange: async (v) => {
+                    this.plugin.settings.memory.extractionThreshold = v;
                     await this.plugin.saveSettings();
-                    this.rerender();
+                },
+            });
+        }
+
+        // 偏好向导
+        const memService = this.plugin.memoryService;
+        if (memService) {
+            const onboarding = new OnboardingService(memService, this.plugin);
+            const isComplete = !onboarding.needsOnboarding();
+
+            const setupSetting = new Setting(advancedBody)
+                .setName('用户偏好初始化向导')
+                .setDesc(isComplete ? '你已完成初始偏好设置。' : '尚未进行偏好初始化向导。');
+
+            setupSetting.addButton((b) =>
+                b.setButtonText(isComplete ? '重新运行向导' : '开始向导').onClick(async () => {
+                    await onboarding.reset();
+                    this.plugin.settings.onboarding.modalCompleted = false;
+                    await this.plugin.saveSettings();
+                    this.app.setting?.close();
+                    const { FirstRunWizardModal } = await import('../modals/FirstRunWizardModal');
+                    new FirstRunWizardModal(this.app, this.plugin).open();
                 }),
             );
-
-        if (mem.enabled) {
-            new Setting(containerEl)
-                .setName(t('settings.memory.autoExtract'))
-                .setDesc(t('settings.memory.autoExtractDesc'))
-                .addToggle((t) =>
-                    t.setValue(mem.autoExtractSessions).onChange(async (v) => {
-                        this.plugin.settings.memory.autoExtractSessions = v;
-                        await this.plugin.saveSettings();
-                        this.rerender();
-                    }),
-                );
-
-            // Threshold lives directly under Auto-extract because it only
-            // makes sense in that context. Hidden when Auto is off.
-            if (mem.autoExtractSessions) {
-                const minMessagesSetting = new Setting(containerEl)
-                    .setName(t('settings.memory.minMessages'))
-                    .setDesc(t('settings.memory.minMessagesDesc'));
-                addSliderInput(minMessagesSetting, {
-                    min: 2, max: 20, step: 1,
-                    value: mem.extractionThreshold,
-                    onChange: async (v) => {
-                        this.plugin.settings.memory.extractionThreshold = v;
-                        await this.plugin.saveSettings();
-                    },
-                });
-            }
-
-            // FEAT-24-08 Welle A follow-up (2026-05-18): the explicit
-            // memory-model dropdown was removed. `getMemoryModel()` falls
-            // back to the active provider's fast tier when no override is
-            // set; the legacy `activeModels[]` it used to enumerate from
-            // is empty after the EPIC-26 migration. The setting field
-            // `memory.memoryModelKey` is preserved for `update_settings`
-            // power-user override.
-
-            // ─── Cross-Surface Sync (BA-26 / FEAT-23-04) ──────────────
-            this.buildCrossSurfaceSection(containerEl);
-
-            // ─── Vault Operator's Soul (FEATURE-0319b L2 + L3) ─────────────────
-            this.buildSoulSection(containerEl);
-
-            // ─── Onboarding ──────────────────────────────────────────
-            const memService = this.plugin.memoryService;
-            addSectionHeading(
-                containerEl,
-                t('settings.memory.headingOnboarding'),
-                { body: t('settings.memory.sectionOnboardingInfo') },
-            );
-
-            if (memService) {
-                const onboarding = new OnboardingService(memService, this.plugin);
-                const isComplete = !onboarding.needsOnboarding();
-
-                const profileSetting = new Setting(containerEl)
-                    .setName(t('settings.memory.userProfile'));
-
-                if (!isComplete) {
-                    profileSetting.setDesc(t('settings.memory.noProfile'));
-                } else {
-                    profileSetting.setDesc(t('settings.memory.profileActive'));
-                }
-
-                // Setup dialog controls
-                const setupSetting = new Setting(containerEl)
-                    .setName(t('settings.memory.setupDialog'))
-                    .setDesc(
-                        isComplete
-                            ? t('settings.memory.setupCompleted')
-                            : t('settings.memory.setupNotStarted'),
-                    );
-
-                setupSetting.addButton((b) =>
-                    b.setButtonText(isComplete ? t('settings.memory.restartSetup') : t('settings.memory.startSetup')).onClick(async () => {
-                        // Reset only the onboarding flags. Configured models and the memory
-                        // KnowledgeDB stay untouched -- the FirstRunWizardModal is add-only
-                        // and never writes to facts/edges/history.
-                        await onboarding.reset();
-                        this.plugin.settings.onboarding.modalCompleted = false;
-                        await this.plugin.saveSettings();
-                        this.app.setting?.close();
-                        const { FirstRunWizardModal } = await import('../modals/FirstRunWizardModal');
-                        new FirstRunWizardModal(this.app, this.plugin).open();
-                    }),
-                );
-
-                if (!isComplete) {
-                    setupSetting.addButton((b) =>
-                        b.setButtonText(t('settings.memory.skipSetup')).onClick(async () => {
-                            await onboarding.markCompleted();
-                            new Notice(t('settings.memory.setupSkipped'));
-                            this.rerender();
-                        }),
-                    );
-                }
-            }
         }
 
-        // ─── Memory v2 Migration (FEATURE-0316 / PLAN-005 task 7) ────────
-        // Visible only when the user actually has something to do:
-        // 'pending' (just upgraded, modal not yet decided) or 'skipped'
-        // (clicked "Later" -- still offer the migration here).
-        // Hidden for fresh installs ('not-applicable') and after the
-        // migration finished ('completed') -- it is a one-time event.
-        // The v1 backup folder remains accessible via Settings ->
-        // Advanced -> Backups (category "memory-v1-backup").
-        // The Memory v2 upgrade section is the only memory-engine UI now.
-        // v2 is the default + only path; the previous engineVersion toggle
-        // was removed because keeping v1 around as a user choice was
-        // complexity for nostalgia, not value.
+        // 跨端同步 (仅在高级中折叠展示)
+        this.buildCrossSurfaceSection(advancedBody);
+
+        // v2 迁移 (若存在)
         const v2Status = this.plugin.settings.memory.v2MigrationStatus;
         if (v2Status === 'pending' || v2Status === 'skipped') {
-            this.buildMemoryV2MigrationSection(containerEl);
+            this.buildMemoryV2MigrationSection(advancedBody);
         }
     }
 
     /**
      * BA-26 / FEAT-23-04: Cross-Surface Sync settings (global default
-     * + per-provider override). Privacy-sichere Defaults: chatgpt +
-     * perplexity + unknown auf manual.
+     * + per-provider override).
      */
     private buildCrossSurfaceSection(containerEl: HTMLElement): void {
-        // 2026-05-19: hide the dropdowns when there is no remote MCP
-        // server active. Without a connector configured in the
-        // Customize -> Connectors tab nothing can push conversations
-        // into Vault Operator, so the settings would be inert and
-        // confusing. Show a single info banner with a pointer instead.
         const remoteMcpEnabled = this.plugin.settings.enableMcpServer ?? false;
         if (!remoteMcpEnabled) {
-            addSectionHeading(
-                containerEl,
-                t('settings.memory.headingCrossSurface'),
-                { body: t('settings.memory.sectionCrossSurfaceInfo') },
-            );
-            const banner = containerEl.createDiv('vault-op-box vault-op-box--info');
-            const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
-            setIcon(icon, 'info');
-            const text = banner.createDiv({ cls: 'vault-op-box__text' });
-            text.createEl('strong', { text: t('settings.memory.crossSurfaceInactiveTitle') });
-            text.createDiv({ text: t('settings.memory.crossSurfaceInactiveBody') });
             return;
         }
 
         addSectionHeading(
             containerEl,
-            t('settings.memory.headingCrossSurface'),
-            { body: t('settings.memory.sectionCrossSurfaceInfo') },
-            { inlineHint: t('settings.memory.crossSurfaceInlineHint') },
+            '跨平台记忆同步（Cross-Surface Sync）',
+            { body: '允许其他客户端或 MCP 连接器与当前知识库同步记忆。' },
         );
 
         // Ensure settings block exists

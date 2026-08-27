@@ -92,6 +92,7 @@ const ATOMIZER_TOOL_SCHEMA: ToolDefinition = {
 const ATOMIZER_SYSTEM_PROMPT = `You convert Markdown notes into atomic memory facts.
 
 RULES:
+- Always preserve the user's original language: If the notes/text are in Chinese, extract and output all facts, descriptions, and rationales in natural Chinese. Never translate them into English.
 - Each fact is ONE self-contained statement. Split compound sentences.
 - Preserve the speaker's voice. Do not rephrase a preference into a third-person fact unless the source already does.
 - topics: 1-3 short lowercase tags. Use established categories ("tools", "preferences", "identity", "projects", "patterns", "errors") when applicable.

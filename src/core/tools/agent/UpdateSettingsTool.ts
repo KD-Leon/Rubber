@@ -143,7 +143,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
                 'Change Vault Operator plugin settings. Use action "set" to change a single setting by path, ' +
                 '"apply_preset" to apply a permission preset, or "open_tab" to open a settings tab for the user. ' +
                 'Available presets: "permissive" (writes/web/mcp/skills auto; sandbox, settings and self-modify still ask), "balanced" (reads + web + skills auto, writes ask), "restrictive" (everything that writes asks; reads still run). ' +
-                'Available tabs for open_tab: "providers", "agent-behaviour", "customize", "advanced". Sub-tabs (agent-behaviour): "modes", "permissions", "memory", "loop", "inline-chat"; (customize): "skills", "connectors", "prompts", "workflows", "rules", "recipes"; (advanced): "interface", "vault", "plugin-api", "data", "optional-assets". ' +
+                'Available tabs for open_tab: "providers", "agent-behaviour", "customize", "connections", "advanced". Sub-tabs (agent-behaviour): "modes", "permissions", "memory", "loop", "inline-chat"; (customize): "skills", "prompts", "workflows", "rules", "recipes"; (connections): "connectors", "web-search", "cloud"; (advanced): "interface", "vault", "plugin-api", "optional-assets", "data". ' +
                 'This tool cannot change API keys — use configure_model for that.',
             input_schema: {
                 type: 'object',
@@ -262,7 +262,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
         // FIX-26-99-01: validate against the AgentSettingsTab TabId union.
         // Pre-fix, an unknown name like 'agent' would be silently cast and
         // open the default tab with the user expecting something else.
-        const VALID_TABS = new Set(['providers', 'agent-behaviour', 'customize', 'advanced', 'help']);
+        const VALID_TABS = new Set(['providers', 'agent-behaviour', 'customize', 'connections', 'advanced', 'help']);
         if (!VALID_TABS.has(tab)) {
             callbacks.pushToolResult(this.formatError(new Error(
                 `Unknown settings tab "${tab}". Valid: ${Array.from(VALID_TABS).join(', ')}.`,

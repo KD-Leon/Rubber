@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile, TFolder } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, setTooltip, Menu, MarkdownRenderer, MarkdownView, Notice, TFile, TFolder } from 'obsidian';
 import { isDeniedPath, keepVisible } from '../core/tools/vault/denyZoneFilter';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
@@ -19,6 +18,7 @@ import { sanitizeDirectoryEntry } from '../core/tools/BaseTool';
 import { SKILL_DESCRIPTION_PROMPT_CAP } from '../core/skills/descriptionCaps';
 import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
+import { PRESETS } from '../core/tools/agent/UpdateSettingsTool';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
 // FIX-44-12: checkpoint markers persist into the conversation and rehydrate live.
@@ -36,6 +36,9 @@ import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { ChatOptionsPopover } from './sidebar/ChatOptionsPopover';
+import { ApprovalModePopover, type ApprovalPresetKey } from './sidebar/ApprovalModePopover';
+import { PlusMenuPopover } from './sidebar/PlusMenuPopover';
+import { renderTelemetryFooter } from './sidebar/telemetryFooter';
 import { applyForcedWorkflow, nextForcedWorkflow, shouldApplyForcedWorkflow } from './sidebar/forcedWorkflow';
 import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
 import { buildPinnedCustomModel, resolveEffortLevelsForPin, resolveStickyChatModel } from './sidebar/chatModelDropdown';
@@ -90,7 +93,6 @@ import DOMPurify from 'dompurify';
 import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 import { buildHealthCheckOptions } from '../core/knowledge/VaultHealthService';
 import { generateShortId } from '../core/utils/generateShortId';
-import { findRelatedConversations } from '../core/history/relatedConversations';
 import { selectResumeSnapshot } from './sidebar/selectResumeSnapshot';
 import { pickTabTitle, TITLE_SETTLES_AFTER } from './sidebar/deriveTabTitle';
 import { isUnnamedTitle } from '../core/history/ConversationStore';
@@ -227,6 +229,7 @@ export class AgentSidebarView extends ItemView {
     // Chat History: active conversation tracking + UI messages for persistence.
     private get activeConversationId(): string | null { return this.activeSession.activeConversationId; }
     private set activeConversationId(v: string | null) { this.activeSession.activeConversationId = v; }
+    private restoredConversationId: string | null = null;
     /** FIX-03-20-01: race-free lazy id creation; delegates to the session. */
     private get lazyConversationId(): LazyConversationId { return this.activeSession.lazyConversationId; }
     private get uiMessages(): UiMessage[] { return this.activeSession.uiMessages; }
@@ -304,6 +307,11 @@ export class AgentSidebarView extends ItemView {
     private toolPicker!: ToolPickerPopover;
     /** The chat "..." options popover (real toggles + actions, FEAT-02-12). */
     private readonly chatOptionsPopover = new ChatOptionsPopover();
+    /** Quick approval-mode (permission preset) selector popover. */
+    private readonly approvalModePopover = new ApprovalModePopover();
+    private approvalButton: HTMLElement | null = null;
+    /** The chat "+" plus menu popover (Notion AI style context picker). */
+    private readonly plusMenuPopover = new PlusMenuPopover();
     /** Manages pending attachments and chip bar UI */
     private attachments!: AttachmentHandler;
     /** Manages / and @ autocomplete dropdown */
@@ -354,36 +362,17 @@ export class AgentSidebarView extends ItemView {
      */
     getState(): Record<string, unknown> {
         const base = super.getState();
-        // USER 2026-07-26: "beim reload oder restart einen frischen zeigen,
-        // alte chats kann man sich ueber die history holen."
-        //
-        // FEAT-55-01 Phase D persisted every open tab, so a restart came back
-        // with however many tabs happened to be open -- three, in practice,
-        // with no way to tell why. Tabs are for the work in front of you;
-        // History is the archive, and it is one click away. Nothing is lost by
-        // starting clean, and the previous behaviour made the restart feel like
-        // it had a memory nobody asked for.
-        //
-        // The key is deliberately omitted rather than written as an empty list,
-        // so an older layout that still carries tab ids also opens fresh.
         return {
             ...base,
-            sessionConversationIds: undefined,
-            activeSessionIndex: undefined,
-            conversationId: undefined,
+            conversationId: this.activeConversationId ?? undefined,
         };
     }
 
     async setState(state: unknown, result: unknown): Promise<void> {
         await super.setState(state, result as never);
-        // USER 2026-07-26: a restart opens a fresh chat. The saved layout is
-        // read but deliberately not acted on -- a vault that still carries tab
-        // ids from before this change must also open clean, and deleting the
-        // keys from getState alone would not achieve that. Old chats are one
-        // click away in History, which is where an archive belongs.
-        //
-        // Deep links are unaffected: obsidian://vault-operator-chat goes through
-        // openChatById, not through setState.
+        if (state && typeof state === 'object' && 'conversationId' in state && typeof (state as { conversationId?: unknown }).conversationId === 'string') {
+            this.restoredConversationId = (state as { conversationId: string }).conversationId;
+        }
     }
 
     async onOpen(): Promise<void> {
@@ -490,12 +479,15 @@ export class AgentSidebarView extends ItemView {
             );
         });
 
-        // FEAT-55-01 (ADR-169): per-leaf conversation persistence. On layout
-        // restore Obsidian calls setState with this leaf's saved
-        // conversationId; reload it so a chat tab survives a restart with its
-        // content instead of opening empty. Falls back to the welcome message
-        // when there is nothing to restore (or the id is stale).
-        this.showWelcomeMessage();
+        // On layout restore or restart: restore the previous active conversation
+        // or the most recent conversation from history if it has messages.
+        const store = this.plugin.conversationStore;
+        const targetId = this.restoredConversationId ?? store?.list()[0]?.id;
+        if (targetId && (store?.getMeta(targetId)?.messageCount ?? 0) > 0) {
+            void this.loadConversation(targetId, { skipNavPush: true });
+        } else {
+            this.showWelcomeMessage();
+        }
         // FEAT-55-01 (ADR-169, user decision 2026-07-25): a fresh chat no
         // longer shows a global "a task was interrupted" resume card. Resume
         // belongs to the SPECIFIC conversation: it surfaces inside that chat
@@ -664,6 +656,7 @@ export class AgentSidebarView extends ItemView {
         // popover in the popout case). FEAT-02-12 review fix + IMP-02-12-03
         // (ToolPickerPopover had the same gap).
         this.chatOptionsPopover.hide();
+        this.plusMenuPopover.hide();
         this.toolPicker?.close();
         this.forcedWorkflowHubUnsub?.();
         this.forcedWorkflowHubUnsub = null;
@@ -674,6 +667,9 @@ export class AgentSidebarView extends ItemView {
         const header = container.createDiv('agent-header');
 
         const titleRow = header.createDiv('agent-title');
+        const duckIcon = titleRow.createSpan('agent-title-duck');
+        duckIcon.appendChild(this.createDuckSvg(18, true));
+
         titleRow.createSpan({
             cls: 'agent-brand-name',
             text: '新建 AI 对话',
@@ -1357,16 +1353,7 @@ export class AgentSidebarView extends ItemView {
         // The mode backend stays functional: `currentMode` setting,
         // ModeService, `switch_agent` tool are unchanged.
 
-        // Model button (left, after mode)
-        this.modelButton = toolbarLeft.createEl('button', {
-            cls: 'toolbar-button model-button',
-            attr: { 'aria-label': t('ui.sidebar.selectModel') },
-        });
-        this.restoreChatModelOverride(); // Issue #54.3: sticky model on view open
-        this.updateModelButton();
-        this.modelButton.addEventListener('click', (e) => this.showModelMenu(e));
-
-        // "+" button — context menu for adding files/notes (FEATURE-1907)
+        // Left 1: "+" button — context menu for adding files/notes/skills (FEATURE-1907)
         const plusBtn = toolbarLeft.createEl('button', {
             cls: 'toolbar-button toolbar-ghost plus-button',
             attr: { 'aria-label': t('ui.sidebar.addContext') },
@@ -1376,21 +1363,41 @@ export class AgentSidebarView extends ItemView {
             this.showPlusMenu(e, plusBtn);
         });
 
-        // "..." button — tools, skills, web search (FEATURE-1907)
-        const ellipsisBtn = toolbarLeft.createEl('button', {
-            cls: 'toolbar-button toolbar-ghost ellipsis-button',
+        // Left 2: Options/Sliders button — tools, skills, web search (FEATURE-1907)
+        const optionsBtn = toolbarLeft.createEl('button', {
+            cls: 'toolbar-button toolbar-ghost options-button ellipsis-button',
             attr: { 'aria-label': t('ui.sidebar.moreOptions') },
         });
-        setIcon(ellipsisBtn.createSpan('toolbar-icon'), 'ellipsis');
-        ellipsisBtn.addEventListener('click', (e) => {
-            this.showChatOptions(e, ellipsisBtn);
+        setIcon(optionsBtn.createSpan('toolbar-icon'), 'sliders-horizontal');
+        optionsBtn.addEventListener('click', (e) => {
+            this.showChatOptions(e, optionsBtn);
         });
 
-        // Keep references for backward compat (hidden, managed via "..." menu now)
-        this.toolPickerButton = ellipsisBtn;
-        this.webToggleButton = ellipsisBtn;
+        // Left 3: Approval-mode quick selector (shield) — permission presets
+        // without a trip to Settings. Icon + label reflect the active preset.
+        this.approvalButton = toolbarLeft.createEl('button', {
+            cls: 'toolbar-button toolbar-ghost approval-button',
+            attr: { 'aria-label': t('ui.approval.title') },
+        });
+        this.updateApprovalButton();
+        this.approvalButton.addEventListener('click', (e) => {
+            this.showApprovalModeMenu(e, this.approvalButton as HTMLElement);
+        });
 
-        // Feature 3: Stop button (hidden by default, shown when task is running)
+        // Keep references for backward compat (hidden, managed via options menu now)
+        this.toolPickerButton = optionsBtn;
+        this.webToggleButton = optionsBtn;
+
+        // Right 1: Model button (Notion-style right side with sparkle star + model name)
+        this.modelButton = toolbarRight.createEl('button', {
+            cls: 'toolbar-button model-button',
+            attr: { 'aria-label': t('ui.sidebar.selectModel') },
+        });
+        this.restoreChatModelOverride(); // Issue #54.3: sticky model on view open
+        this.updateModelButton();
+        this.modelButton.addEventListener('click', (e) => this.showModelMenu(e));
+
+        // Right 2: Stop button (hidden by default, shown when task is running)
         this.stopButton = toolbarRight.createEl('button', {
             cls: 'toolbar-button stop-button',
             attr: { 'aria-label': t('ui.sidebar.stop') },
@@ -1399,13 +1406,16 @@ export class AgentSidebarView extends ItemView {
         this.stopButton.classList.add('agent-u-hidden');
         this.stopButton.addEventListener('click', () => this.handleStop());
 
-        // Send button (Notion style up arrow)
+        // Right 3: Send button (Notion style circular up arrow)
         this.sendButton = toolbarRight.createEl('button', {
             cls: 'toolbar-button send-button',
             attr: { 'aria-label': t('ui.sidebar.send') },
         });
         setIcon(this.sendButton.createSpan('toolbar-icon'), 'arrow-up');
         this.sendButton.addEventListener('click', () => { void this.handleSendMessage(); });
+
+        // Update send button state on init
+        this.refreshRunStateButtons();
 
         // FIX-PERF-28c: when the sidebar opened on shellReady (before
         // servicesReady), disable the send button until services finish
@@ -1436,29 +1446,38 @@ export class AgentSidebarView extends ItemView {
      * trigger and focuses the input so the user can add free text.
      */
     private showPlusMenu(e: MouseEvent, anchor: HTMLElement): void {
-        const menu = new Menu();
-        menu.addItem(item => item
-            .setTitle(t('ui.sidebar.attachFile'))
-            .setIcon('paperclip')
-            .onClick(() => this.attachments.openFilePicker()));
-        menu.addItem(item => item
-            .setTitle(t('ui.sidebar.addVaultFile'))
-            .setIcon('at-sign')
-            .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
-        menu.addSeparator();
-        menu.addItem(item => item
-            .setTitle(t('ui.sidebar.insertSkill'))
-            .setIcon('sparkles')
-            .onClick(() => this.openCommandPicker('skills', anchor)));
-        menu.addItem(item => item
-            .setTitle(t('ui.sidebar.insertPrompt'))
-            .setIcon('message-square-quote')
-            .onClick(() => this.openCommandPicker('prompts', anchor)));
-        menu.addItem(item => item
-            .setTitle(t('ui.sidebar.insertWorkflow'))
-            .setIcon('workflow')
-            .onClick(() => this.openCommandPicker('workflows', anchor)));
-        menu.showAtMouseEvent(e);
+        this.plusMenuPopover.show(anchor, this.containerEl, [
+            {
+                icon: 'paperclip',
+                label: t('ui.sidebar.attachFile'),
+                sub: '图片、PDF 或文件',
+                onClick: () => this.attachments.openFilePicker(),
+            },
+            {
+                icon: 'at-sign',
+                label: t('ui.sidebar.addVaultFile'),
+                sub: '提及页面或文件夹',
+                onClick: () => this.vaultFilePicker.show(anchor, this.containerEl),
+            },
+            {
+                icon: 'sparkles',
+                label: t('ui.sidebar.insertSkill'),
+                sub: '扩展专业领域技能',
+                onClick: () => { void this.openCommandPicker('skills', anchor); },
+            },
+            {
+                icon: 'message-square-quote',
+                label: t('ui.sidebar.insertPrompt'),
+                sub: '快捷 Prompt 模板',
+                onClick: () => { void this.openCommandPicker('prompts', anchor); },
+            },
+            {
+                icon: 'workflow',
+                label: t('ui.sidebar.insertWorkflow'),
+                sub: '多步自动化工作流',
+                onClick: () => { void this.openCommandPicker('workflows', anchor); },
+            },
+        ]);
     }
 
     private async openCommandPicker(
@@ -1695,6 +1714,8 @@ export class AgentSidebarView extends ItemView {
             const hasModeOverride = !!this.plugin.settings.modeModelKeys?.[this.modeService.getActiveModeSlug()];
             title = hasModeOverride ? t('ui.sidebar.modeOverride', { label }) : label;
         }
+        // Notion-style gradient sparkle ✦ icon
+        this.renderModelSparkleIcon(this.modelButton.createSpan('model-sparkle-icon'));
         this.modelButton.createSpan('model-label').setText(label);
         // The thinking state stays visible inside the picker popover
         // (chat-model-picker-thinking-switch); the chat composer pill row only
@@ -1707,7 +1728,7 @@ export class AgentSidebarView extends ItemView {
                 : t('ui.sidebar.thinkingOverrideTitleOff', { label: title });
         }
         setIcon(this.modelButton.createSpan('mode-chevron'), 'chevron-down');
-        this.modelButton.title = title;
+        setTooltip(this.modelButton, title, { delay: 60, placement: 'top' });
         // Use the effective key for context-tracker logic below.
         const effectiveKey = this.getEffectiveModelKey();
         const model = this.plugin.settings.activeModels.find((m) => getModelKey(m) === effectiveKey);
@@ -1727,6 +1748,46 @@ export class AgentSidebarView extends ItemView {
                 console.debug('[AgentSidebarView] Failed to update context window for model change:', e);
             }
         }
+    }
+
+    /** Render a vibrant Notion/Gemini style 4-point star SVG into container */
+    private renderModelSparkleIcon(container: HTMLElement): void {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '13');
+        svg.setAttribute('height', '13');
+        svg.setAttribute('class', 'sparkle-svg');
+
+        const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        const grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+        const gradId = 'vo-sparkle-grad-ai';
+        grad.setAttribute('id', gradId);
+        grad.setAttribute('x1', '0%');
+        grad.setAttribute('y1', '0%');
+        grad.setAttribute('x2', '100%');
+        grad.setAttribute('y2', '100%');
+
+        const stops = [
+            { offset: '0%', color: '#38bdf8' },
+            { offset: '35%', color: '#818cf8' },
+            { offset: '70%', color: '#c084fc' },
+            { offset: '100%', color: '#fb923c' },
+        ];
+        for (const s of stops) {
+            const stop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+            stop.setAttribute('offset', s.offset);
+            stop.setAttribute('stop-color', s.color);
+            grad.appendChild(stop);
+        }
+        defs.appendChild(grad);
+        svg.appendChild(defs);
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M12 0C12 6.627 6.627 12 0 12C6.627 12 12 17.373 12 24C12 17.373 17.373 12 24 12C17.373 12 12 6.627 12 0Z');
+        path.setAttribute('fill', `url(#${gradId})`);
+        svg.appendChild(path);
+
+        container.appendChild(svg);
     }
 
     private showModelMenu(event: MouseEvent): void {
@@ -2354,58 +2415,18 @@ export class AgentSidebarView extends ItemView {
         if (!container || container.childElementCount > 0) return;
         const emptyState = container.createDiv('nova-empty-state');
 
-        // Notion-style doodle face avatar (DOM API for review-bot compliance)
+        // Clean, High-End Minimalist Kawaii Chubby Duck (No circle, enlarged 80x80)
         const avatar = emptyState.createDiv('nova-notion-avatar');
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('width', '52');
-        svg.setAttribute('height', '52');
-        svg.setAttribute('viewBox', '0 0 52 52');
-        svg.setAttribute('fill', 'none');
+        avatar.appendChild(this.createDuckSvg(80, true));
 
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', '26');
-        circle.setAttribute('cy', '26');
-        circle.setAttribute('r', '25');
-        circle.setAttribute('fill', 'var(--background-secondary)');
-        circle.setAttribute('stroke', 'var(--background-modifier-border)');
-        circle.setAttribute('stroke-width', '1.2');
-        svg.appendChild(circle);
-
-        const eyeL = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        eyeL.setAttribute('cx', '20'); eyeL.setAttribute('cy', '23'); eyeL.setAttribute('r', '1.8');
-        eyeL.setAttribute('fill', 'var(--text-normal)');
-        svg.appendChild(eyeL);
-
-        const eyeR = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        eyeR.setAttribute('cx', '32'); eyeR.setAttribute('cy', '23'); eyeR.setAttribute('r', '1.8');
-        eyeR.setAttribute('fill', 'var(--text-normal)');
-        svg.appendChild(eyeR);
-
-        const browL = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        browL.setAttribute('d', 'M16.5 18C18 16.5 21.5 16.5 23 18');
-        browL.setAttribute('stroke', 'var(--text-normal)'); browL.setAttribute('stroke-width', '1.6'); browL.setAttribute('stroke-linecap', 'round');
-        svg.appendChild(browL);
-
-        const browR = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        browR.setAttribute('d', 'M29 18C30.5 16.5 34 16.5 35.5 18');
-        browR.setAttribute('stroke', 'var(--text-normal)'); browR.setAttribute('stroke-width', '1.6'); browR.setAttribute('stroke-linecap', 'round');
-        svg.appendChild(browR);
-
-        const nose = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        nose.setAttribute('d', 'M25.5 24V32C25.5 33 23.5 34 22 33.5');
-        nose.setAttribute('stroke', 'var(--text-normal)'); nose.setAttribute('stroke-width', '1.6'); nose.setAttribute('stroke-linecap', 'round');
-        svg.appendChild(nose);
-
-        avatar.appendChild(svg);
-
-        emptyState.createDiv({ cls: 'nova-notion-heading', text: '今日事，我来帮。' });
+        emptyState.createDiv({ cls: 'nova-notion-heading', text: '橡皮鸭在岗，今日事我来帮。' });
 
         const listContainer = emptyState.createDiv('nova-notion-action-list');
         const actions = [
-            { icon: 'sparkles', label: '个性化你的 Nova Vault', prompt: '请根据我的写作偏好和笔记库习惯，帮助我梳理适合我的 AI 知识管理流程。' },
-            { icon: 'presentation', label: '创建幻灯片演示文稿', badge: '新', prompt: '请根据当前笔记内容为我制作一份清晰有条理的演示文稿 PPT 大纲。' },
-            { icon: 'languages', label: '翻译此页面', prompt: '请将当前打开的笔记内容翻译为地道精准的英文。' },
-            { icon: 'search', label: '深度剖析', prompt: '请深入剖析当前打开笔记的核心论点、底层逻辑与潜在盲区。' },
+            { icon: 'languages', label: '翻译整页', prompt: '请将当前打开的笔记内容完整翻译为英文，保持原有的格式和结构。' },
+            { icon: 'file-text', label: '总结当前笔记', prompt: '请总结当前打开笔记的核心内容，提炼出关键要点。' },
+            { icon: 'folder-open', label: '整理散乱文件', prompt: '请帮我整理知识库中散乱的笔记：分析内容主题，建议合适的文件夹归类和标签。' },
+            { icon: 'list-todo', label: '提取行动项', prompt: '请从当前笔记中提取所有待办事项和行动建议，整理成一份清晰的清单。' },
         ];
 
         for (const action of actions) {
@@ -2413,9 +2434,6 @@ export class AgentSidebarView extends ItemView {
             const iconWrap = item.createSpan('nova-notion-item-icon');
             setIcon(iconWrap, action.icon);
             item.createSpan({ cls: 'nova-notion-item-text', text: action.label });
-            if (action.badge) {
-                item.createSpan({ cls: 'nova-notion-item-badge', text: action.badge });
-            }
             item.addEventListener('click', () => {
                 if (this.textarea) {
                     this.textarea.value = action.prompt;
@@ -2424,6 +2442,98 @@ export class AgentSidebarView extends ItemView {
                 }
             });
         }
+    }
+
+    /**
+     * Creates the animated/static SVG for the cute chubby yellow mascot duck.
+     * Can be scaled to any size (e.g. 80 for empty state, 18-20 for header).
+     */
+    private createDuckSvg(size: number = 80, animated: boolean = true): SVGSVGElement {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', String(size));
+        svg.setAttribute('height', String(size));
+        svg.setAttribute('viewBox', '0 0 80 80');
+        svg.setAttribute('fill', 'none');
+
+        // Cute soft double baby feather tuft on top (头顶软萌小绒毛)
+        const tuft = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        if (animated) tuft.setAttribute('class', 'nova-duck-tuft');
+        tuft.setAttribute('d', 'M36.5 15 C34.5 9 39.5 6 42 9.5 C44 6 49 7 48 12 C47.5 14 45 15.5 43 15.5 Z');
+        tuft.setAttribute('fill', '#FFB800');
+        tuft.setAttribute('stroke', '#E29B00');
+        tuft.setAttribute('stroke-width', '1');
+        tuft.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(tuft);
+
+        // Chubby mochi head (肥嘟嘟糯米团子大脸，圆滚滚肉感双颊)
+        const head = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        head.setAttribute('d', 'M40 14 C56 14 67 25 69 41 C71 56 65 70 52 73 C46 74 34 74 28 73 C15 70 9 56 11 41 C13 25 24 14 40 14 Z');
+        head.setAttribute('fill', '#FFD428');
+        head.setAttribute('stroke', '#EE9E00');
+        head.setAttribute('stroke-width', '1.4');
+        head.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(head);
+
+        // Soft pastel cheek blushes (两颊软萌水蜜桃粉腮红)
+        const blushL = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        blushL.setAttribute('cx', '19'); blushL.setAttribute('cy', '49');
+        blushL.setAttribute('rx', '5.2'); blushL.setAttribute('ry', '3.2');
+        blushL.setAttribute('fill', '#FF829C'); blushL.setAttribute('opacity', '0.55');
+        svg.appendChild(blushL);
+
+        const blushR = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        blushR.setAttribute('cx', '61'); blushR.setAttribute('cy', '49');
+        blushR.setAttribute('rx', '5.2'); blushR.setAttribute('ry', '3.2');
+        blushR.setAttribute('fill', '#FF829C'); blushR.setAttribute('opacity', '0.55');
+        svg.appendChild(blushR);
+
+        // Group for animated blinking eyes (眨眼动画图层)
+        const eyesGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        if (animated) eyesGroup.setAttribute('class', 'nova-duck-eyes');
+
+        // Wide-set innocent dark eyes (宽眼距无辜黑豆眼)
+        const eyeL = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        eyeL.setAttribute('cx', '29'); eyeL.setAttribute('cy', '43.5');
+        eyeL.setAttribute('rx', '3.2'); eyeL.setAttribute('ry', '4.2');
+        eyeL.setAttribute('fill', '#1C1C1E');
+        eyesGroup.appendChild(eyeL);
+
+        const eyeR = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        eyeR.setAttribute('cx', '51'); eyeR.setAttribute('cy', '43.5');
+        eyeR.setAttribute('rx', '3.2'); eyeR.setAttribute('ry', '4.2');
+        eyeR.setAttribute('fill', '#1C1C1E');
+        eyesGroup.appendChild(eyeR);
+
+        // Clean single catchlight sparkles (清澈纯白眼神光)
+        const glintL = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        glintL.setAttribute('cx', '28'); glintL.setAttribute('cy', '42');
+        glintL.setAttribute('r', '1.3'); glintL.setAttribute('fill', '#FFFFFF');
+        eyesGroup.appendChild(glintL);
+
+        const glintR = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        glintR.setAttribute('cx', '50'); glintR.setAttribute('cy', '42');
+        glintR.setAttribute('r', '1.3'); glintR.setAttribute('fill', '#FFFFFF');
+        eyesGroup.appendChild(glintR);
+
+        svg.appendChild(eyesGroup);
+
+        // Chubby rounded horizontal duck beak (圆润扁萌大肉嘴)
+        const beak = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        beak.setAttribute('cx', '40'); beak.setAttribute('cy', '51');
+        beak.setAttribute('rx', '10.5'); beak.setAttribute('ry', '6.2');
+        beak.setAttribute('fill', '#FF7018');
+        beak.setAttribute('stroke', '#E85B00');
+        beak.setAttribute('stroke-width', '1.2');
+        svg.appendChild(beak);
+
+        // Soft beak highlight (鸭嘴饱满高光)
+        const beakHighlight = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+        beakHighlight.setAttribute('cx', '40'); beakHighlight.setAttribute('cy', '49.5');
+        beakHighlight.setAttribute('rx', '7.5'); beakHighlight.setAttribute('ry', '3');
+        beakHighlight.setAttribute('fill', '#FFA33A');
+        svg.appendChild(beakHighlight);
+
+        return svg;
     }
 
     private async openFirstRunWizard(): Promise<void> {
@@ -3098,34 +3208,19 @@ export class AgentSidebarView extends ItemView {
         let liveActivityLabel = t('ui.sidebar.working');
         const updateLiveMeter = (): void => {
             if (!messageEl || !messageEl.isConnected) return;
+            if (accumulatedText.length > 0) {
+                hideLiveMeter();
+                return;
+            }
             let meter = messageEl.querySelector<HTMLElement>(':scope > .vo-live-meter');
             if (!meter) {
                 meter = createDiv('vo-live-meter');
-                // The spinner IS the brand mark with a rotating slash (CSS), not
-                // a generic lucide loader.
-                meter.createSpan({ cls: 'vo-live-meter-icon vo-brand-mark', attr: { 'aria-hidden': 'true' } });
-                meter.createSpan('vo-live-meter-label');
-                meter.createSpan('vo-live-meter-tokens');
-                // First child: the status belongs above the work it describes,
-                // and staying first keeps it from sliding around as a plan panel
-                // or tool block appears.
+                meter.createSpan('vo-live-meter-label nova-shimmer-text');
                 messageEl.insertBefore(meter, messageEl.firstChild);
-                // Supersedes the static "working" row created at turn start --
-                // same word, now with live numbers. Only that node is removed,
-                // not via removeLoading(), which would also clear the tool rows.
                 contentEl.querySelector('.message-loading')?.remove();
                 contentEl.classList.remove('has-loading');
             }
             meter.querySelector<HTMLElement>('.vo-live-meter-label')?.setText(liveActivityLabel);
-            const streamedSinceReal = Math.max(
-                0,
-                accumulatedText.length + accumulatedThinking.length - liveTokenCharsBase,
-            );
-            const tokens = liveTokensReal + Math.ceil(streamedSinceReal / LIVE_CHARS_PER_TOKEN);
-            meter.querySelector<HTMLElement>('.vo-live-meter-tokens')
-                // "Tokens" is a technical term and stays English in every
-                // locale, so this needs no i18n key.
-                ?.setText(tokens > 0 ? `${this.formatTokens(tokens)} Tokens` : '');
             meter.classList.remove('agent-u-hidden');
         };
         // Hide EVERY meter in this run's container, not just the current
@@ -3314,6 +3409,7 @@ export class AgentSidebarView extends ItemView {
                 loadingRemoved = true;
                 contentEl.querySelector('.message-loading')?.remove();
                 contentEl.classList.remove('has-loading');
+                hideLiveMeter();
             }
             // Also remove any "analyzing" row between iterations (lives inside stepsBodyEl)
             (stepsBodyEl ?? toolsEl).querySelector('.tool-computing-row')?.remove();
@@ -3444,13 +3540,19 @@ export class AgentSidebarView extends ItemView {
                         isThinking = true;
                         thinkingEl.classList.remove('agent-u-hidden');
                         thinkingEl.empty();
-                        const header = thinkingEl.createDiv('thinking-header');
-                        setIcon(header.createSpan('thinking-spinner'), 'loader');
+                        const header = thinkingEl.createDiv('thinking-header is-expanded');
+                        const chevron = header.createSpan('thinking-chevron');
+                        setIcon(chevron, 'chevron-right');
+                        const icon = header.createSpan('thinking-icon');
+                        setIcon(icon, 'sparkles');
                         header.createSpan('thinking-label').setText(t('ui.sidebar.reasoning'));
                         thinkingEl.createDiv('thinking-content');
                         header.addEventListener('click', () => {
                             const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
-                            if (body) body.classList.toggle('agent-u-hidden');
+                            if (body) {
+                                const isHidden = body.classList.toggle('agent-u-hidden');
+                                header.classList.toggle('is-expanded', !isHidden);
+                            }
                         });
                     }
                     // FIX-PERF-02: append the chunk instead of rewriting the
@@ -3468,15 +3570,13 @@ export class AgentSidebarView extends ItemView {
                     if (isThinking) {
                         isThinking = false;
                         const header = thinkingEl.querySelector('.thinking-header');
-                        const spinner = thinkingEl.querySelector('.thinking-spinner');
                         const label = thinkingEl.querySelector('.thinking-label');
-                        if (spinner != null && spinner.instanceOf(HTMLElement)) setIcon(spinner, 'chevron-right');
                         if (label != null && label.instanceOf(HTMLElement)) label.setText(t('ui.sidebar.reasoningCollapsed'));
                         const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
                         if (body) body.classList.add('agent-u-hidden');
-                        if (header != null && header.instanceOf(HTMLElement)) header.addEventListener('click', () => {
-                            if (body) body.classList.toggle('agent-u-hidden');
-                        }, { once: true });
+                        if (header != null && header.instanceOf(HTMLElement)) {
+                            header.classList.remove('is-expanded');
+                        }
                     }
                     accumulatedText += chunk;
                     updateLiveMeter();
@@ -4605,7 +4705,10 @@ export class AgentSidebarView extends ItemView {
         // Stop with Send at the same position, making a running task
         // unstoppable as soon as text sat in the textarea.
         const { showSend, showStop } = resolveRunStateButtons(running, hasText);
-        if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', !showSend);
+        if (this.sendButton) {
+            this.sendButton.classList.toggle('agent-u-hidden', !showSend);
+            this.sendButton.classList.toggle('has-text', hasText);
+        }
         if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !showStop);
         // FEAT-55-01 (Phase C): keep the tab strip's per-session running dot in
         // sync as runs start/stop.
@@ -5298,57 +5401,10 @@ export class AgentSidebarView extends ItemView {
             this.updateNavButtons();
         }
 
-        // FEAT-55-06: read-only cross-session topic awareness. Offer earlier
-        // conversations on the same topic so the user can pick up prior work.
-        this.maybeOfferRelatedConversations(id);
-
         // FEAT-55-01 (user decision 2026-07-25): if THIS conversation has an
         // interrupted-task snapshot, offer resume HERE, inside the concrete
         // chat opened from History -- not as a banner in a new/empty chat.
         void this.maybeOfferInflightResume(id);
-    }
-
-    /**
-     * FEAT-55-06 (EPIC-55): surface earlier conversations that share this
-     * chat's topic, as a dismissible read-only suggestion. Never mutates any
-     * conversation and never injects into a running loop -- it only offers a
-     * one-click jump. Uses the local title-overlap ranker (no embeddings /
-     * no API); a later iteration can swap in the semantic index.
-     */
-    private maybeOfferRelatedConversations(currentId: string): void {
-        try {
-            if (!this.chatContainer) return;
-            const store = this.plugin.conversationStore;
-            if (!store) return;
-            const meta = store.list().find((c) => c.id === currentId);
-            if (!meta?.title) return;
-            const related = findRelatedConversations(meta.title, store.list(), { currentId, limit: 3 });
-            if (related.length === 0) return;
-
-            const row = this.chatContainer.createDiv('related-conversations-row');
-            const label = row.createSpan('related-conversations-label');
-            setIcon(label.createSpan('related-conversations-icon'), 'link');
-            label.appendText(t('ui.related.prompt'));
-            for (const rc of related) {
-                const btn = row.createEl('button', {
-                    cls: 'related-conversations-item',
-                    text: rc.title,
-                });
-                btn.addEventListener('click', () => {
-                    row.remove();
-                    // FEAT-55-01: open the related conversation in its own tab
-                    // (or switch if already open) rather than clobbering this one.
-                    void this.openConversationInTab(rc.id);
-                });
-            }
-            const dismiss = row.createEl('button', {
-                cls: 'related-conversations-dismiss',
-                text: t('ui.related.dismiss'),
-            });
-            dismiss.addEventListener('click', () => { row.remove(); });
-        } catch (e) {
-            console.debug('[Related] suggestion failed (non-fatal):', e);
-        }
     }
 
     /**
@@ -5515,10 +5571,12 @@ export class AgentSidebarView extends ItemView {
         // streaming-cursor ::after without using :has(.message-loading)
         // (review-bot warns about :has() invalidation cost).
         contentEl.classList.add('has-loading');
-        // Show a loading indicator immediately so the user sees something right away
+        // Show a loading indicator immediately: single line with shimmer sweep
         const loadingEl = contentEl.createDiv('message-loading');
-        setIcon(loadingEl.createSpan('message-loading-icon'), 'loader');
-        loadingEl.createSpan('message-loading-text').setText(t('ui.sidebar.working'));
+        loadingEl.createSpan({
+            cls: 'nova-shimmer-text',
+            text: t('ui.sidebar.working'),
+        });
         // Token usage + timestamp footer
         const footerEl = messageEl.createDiv('message-footer');
         footerEl.classList.add('agent-u-hidden');
@@ -5576,13 +5634,17 @@ export class AgentSidebarView extends ItemView {
         if (role === 'assistant' && reasoningText && reasoningText.length > 0) {
             const thinkingEl = msgEl.createDiv('thinking-block');
             const header = thinkingEl.createDiv('thinking-header');
-            setIcon(header.createSpan('thinking-spinner'), 'chevron-right');
+            const chevron = header.createSpan('thinking-chevron');
+            setIcon(chevron, 'chevron-right');
+            const icon = header.createSpan('thinking-icon');
+            setIcon(icon, 'sparkles');
             header.createSpan('thinking-label').setText(t('ui.sidebar.reasoningCollapsed'));
             const body = thinkingEl.createDiv('thinking-content');
             body.classList.add('agent-u-hidden');
             body.setText(reasoningText);
             header.addEventListener('click', () => {
-                body.classList.toggle('agent-u-hidden');
+                const isHidden = body.classList.toggle('agent-u-hidden');
+                header.classList.toggle('is-expanded', !isHidden);
             });
         }
         // Re-inject the collapsed agent steps block above the markdown so
@@ -5617,7 +5679,8 @@ export class AgentSidebarView extends ItemView {
         // Restore the persisted usage/cost line. Placed between content and
         // the action bar, matching the live-stream scaffold order.
         if (role === 'assistant' && usageFooter) {
-            msgEl.createDiv('message-footer').setText(usageFooter);
+            const footerEl = msgEl.createDiv('message-footer');
+            renderTelemetryFooter(footerEl, usageFooter);
         }
         // Restore action buttons for history messages
         if (role === 'assistant') {
@@ -5753,9 +5816,9 @@ export class AgentSidebarView extends ItemView {
     private addUserMessageActions(msgEl: HTMLElement, text: string): void {
         const bar = msgEl.createDiv('user-message-actions');
         const makeBtn = (icon: string, tooltip: string, onClick: () => void) => {
-            const btn = bar.createEl('button', { cls: 'message-action-btn', attr: { 'aria-label': tooltip } });
+            const btn = bar.createEl('button', { cls: 'message-action-btn' });
             setIcon(btn, icon);
-            btn.title = tooltip;
+            setTooltip(btn, tooltip, { delay: 50, placement: 'top' });
             btn.addEventListener('click', onClick);
         };
 
@@ -5813,13 +5876,62 @@ export class AgentSidebarView extends ItemView {
 
 
 
-    // ── Chat options popover (FEAT-02-12) ─────────────────────────────────────
+    // ── Approval-mode quick selector ────────────────────────────────────────
+
+    /**
+     * Derive the active approval preset the same way PermissionsTab does,
+     * so the toolbar badge and the settings cards never disagree.
+     */
+    private getActiveApprovalPreset(): ApprovalPresetKey {
+        const a = this.plugin.settings.autoApproval;
+        if (!a.enabled) return 'restrictive';
+        if (a.noteEdits && a.vaultChanges && a.web && a.mcp) return 'permissive';
+        if (!a.noteEdits && !a.vaultChanges && a.web) return 'balanced';
+        return 'custom';
+    }
+
+    private updateApprovalButton(): void {
+        const btn = this.approvalButton;
+        if (!btn) return;
+        btn.empty();
+        const preset = this.getActiveApprovalPreset();
+        const iconByPreset: Record<ApprovalPresetKey, string> = {
+            restrictive: 'shield',
+            balanced: 'shield-check',
+            permissive: 'zap',
+            custom: 'sliders-horizontal',
+        };
+        setIcon(btn.createSpan('toolbar-icon'), iconByPreset[preset]);
+        btn.createSpan({ cls: 'approval-button-label', text: t(`ui.approval.${preset}`) });
+    }
+
+    private showApprovalModeMenu(_e: MouseEvent, anchor: HTMLElement): void {
+        this.approvalModePopover.show(anchor, this.containerEl, {
+            active: this.getActiveApprovalPreset(),
+            onSelect: (key) => { void this.applyApprovalPreset(key); },
+            onOpenSettings: () => {
+                this.app.setting?.open();
+                window.setTimeout(() => this.app.setting?.openTabById(this.plugin.manifest.id), 200);
+                window.setTimeout(() => this.plugin.openSettingsAt('agent-behaviour', 'permissions'), 450);
+            },
+        });
+    }
+
+    private async applyApprovalPreset(key: Exclude<ApprovalPresetKey, 'custom'>): Promise<void> {
+        const preset = PRESETS[key];
+        if (!preset) return;
+        Object.assign(this.plugin.settings.autoApproval, preset);
+        this.plugin.settings.autoApproval.enabled = key !== 'restrictive';
+        await this.plugin.saveSettings();
+        this.updateApprovalButton();
+        new Notice(`${t('ui.approval.title')}: ${t(`ui.approval.${key}`)}`);
+    }
 
     /**
      * Open the chat "..." options as a custom popover: real toggles for the
      * boolean settings (web search, add open note, auto-accept edits), then the
      * one-shot actions below. Replaces the old native Menu, whose booleans could
-     * only render a checkmark, not a switch.
+     * only render a checkmark, not a switch. (FEAT-02-12)
      */
     private showChatOptions(e: MouseEvent, anchor: HTMLElement): void {
         const settings = this.plugin.settings;
@@ -5879,78 +5991,22 @@ export class AgentSidebarView extends ItemView {
                 {
                     icon: 'pocket-knife',
                     label: t('ui.sidebar.selectTools'),
+                    hasChevron: true,
                     onClick: () => this.toolPicker.show(e, anchor, this.containerEl),
                 },
                 {
                     icon: 'star',
                     label: t('ui.sidebar.saveToMemory'),
+                    hasChevron: false,
                     onClick: () => { void this.handleSaveToMemory(); },
                 },
                 {
-                    icon: 'refresh-cw',
-                    label: t('ui.menu.refreshIndex'),
-                    onClick: () => { void (async () => {
-                        const activeFile = this.app.workspace.getActiveFile();
-                        if (!activeFile) { new Notice(t('notice.noActiveFile')); return; }
-                        if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
-                        // FIX-15-01-02: force. An explicit "Refresh index" must rebuild
-                        // even when the bytes are unchanged, otherwise the
-                        // content gate would make the menu item a no-op.
-                        await this.plugin.semanticIndex.updateFile(activeFile.path, { force: true });
-                        new Notice(t('notice.indexRefreshed'));
-                    })(); },
-                },
-                {
-                    icon: 'database',
-                    label: t('ui.menu.forceReindex'),
+                    icon: 'settings',
+                    label: t('ui.sidebar.settings'),
+                    hasChevron: true,
                     onClick: () => {
-                        if (!this.plugin.semanticIndex) { new Notice(t('notice.semanticDisabled')); return; }
-                        if (this.plugin.semanticIndex.building) { new Notice(t('notice.indexingInProgress')); return; }
-                        new Notice(t('notice.reindexingVault'));
-                        // FIX-15-01-03 (Issue #68): buildIndex never rejects on
-                        // embedding failures -- it counts them per file and
-                        // resolves. Reporting unconditional success here is how
-                        // a completely broken provider showed up as "Vault
-                        // index rebuilt" while nothing had been indexed.
-                        this.plugin.semanticIndex.buildIndex(undefined, true).then((res) => {
-                            if (res.aborted || (res.indexed === 0 && res.errors > 0)) {
-                                new Notice(t('notice.reindexFailed', {
-                                    error: res.lastError ?? t('notice.indexNoFilesIndexed'),
-                                }), 10_000);
-                            } else if (res.errors > 0) {
-                                new Notice(t('notice.vaultIndexRebuiltWithErrors', {
-                                    indexed: res.indexed, errors: res.errors,
-                                }), 8_000);
-                            } else {
-                                new Notice(t('notice.vaultIndexRebuilt'));
-                            }
-                        }).catch((err: Error) => new Notice(t('notice.reindexFailed', { error: err.message })));
-                    },
-                },
-                {
-                    icon: 'stethoscope',
-                    label: t('modal.vaultHealth.title'),
-                    onClick: () => { void (async () => {
-                        if (!this.plugin.vaultHealthService) {
-                            new Notice(t('notice.vaultHealth.serviceUnavailable'));
-                            return;
-                        }
-                        new Notice(t('notice.vaultHealth.checkRunning'));
-                        await this.plugin.vaultHealthService.runChecks(undefined, buildHealthCheckOptions(this.plugin.settings));
-                        if (this.plugin.vaultHealthService.getFindings().length === 0) {
-                            new Notice(t('notice.vaultHealth.noIssues'));
-                            return;
-                        }
-                        this.openHealthModal();
-                    })(); },
-                },
-                {
-                    icon: 'x-circle',
-                    label: t('ui.menu.cancelIndexing'),
-                    isVisible: () => this.plugin.semanticIndex?.building ?? false,
-                    onClick: () => {
-                        this.plugin.semanticIndex?.cancelBuild();
-                        new Notice(t('notice.indexingCancelled'));
+                        this.app.setting?.open();
+                        window.setTimeout(() => this.app.setting?.openTabById(this.plugin.manifest.id), 200);
                     },
                 },
             ],
@@ -6334,9 +6390,9 @@ export class AgentSidebarView extends ItemView {
         }
 
         const makeBtn = (icon: string, tooltip: string, onClick: () => void) => {
-            const btn = bar.createEl('button', { cls: 'message-action-btn', attr: { 'aria-label': tooltip } });
+            const btn = bar.createEl('button', { cls: 'message-action-btn' });
             setIcon(btn, icon);
-            btn.title = tooltip;
+            setTooltip(btn, tooltip, { delay: 50, placement: 'top' });
             btn.addEventListener('click', onClick);
         };
 

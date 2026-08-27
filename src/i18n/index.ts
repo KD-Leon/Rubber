@@ -3,10 +3,11 @@
  *
  * The active locale follows the Obsidian app language (getLanguage) with no
  * plugin-side language setting. English is bundled into main.js and is the
- * lookup fallback. The eight non-English locales ship as on-demand language
- * packs (JSON assets, FEAT-42-05) so they never inflate main.js; they are
- * fetched into the vault on first use, hash-verified, and applied at boot
- * before the UI renders via applyLocalePack().
+ * lookup fallback. Chinese (simplified + traditional) is also bundled.
+ * 2026-08-27: the six on-demand language packs (de/ja/ko/es/fr/ru) are
+ * paused -- the pack files remain in locales/packs/ but those locales now
+ * resolve to 'en' and no pack is ever fetched. To re-enable, re-add the
+ * locales to SUPPORTED_LOCALES and LOCALE_LABELS.
  *
  * Lookup chain: active locale table -> en -> raw key.
  */
@@ -17,7 +18,7 @@ import { en } from './locales/en';
 import zh from './locales/packs/zh.json';
 import zhTW from './locales/packs/zh-tw.json';
 
-export const SUPPORTED_LOCALES = ['en', 'de', 'zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'ru'] as const;
+export const SUPPORTED_LOCALES = ['en', 'zh', 'zh-TW'] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
 /**

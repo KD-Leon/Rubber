@@ -347,6 +347,17 @@ export function cacheHitRate(inputTokens: number, cacheReadTokens: number, cache
     return Math.round((cacheReadTokens / total) * 100);
 }
 
+/** Formats token numbers cleanly into compact strings (e.g. 27.7k, 1.2M, 371). */
+export function formatTokensCompact(n: number): string {
+    if (n >= 1_000_000) {
+        return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    }
+    if (n >= 1_000) {
+        return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'k';
+    }
+    return n.toLocaleString();
+}
+
 /** UI helper: build a one-line cost summary for the footer (FEAT-24-05). */
 export function formatTelemetryFooter(args: {
     inputTokens: number;

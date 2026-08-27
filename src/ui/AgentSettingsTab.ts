@@ -3,7 +3,6 @@ import type ObsidianAgentPlugin from '../main';
 import { t } from '../i18n';
 
 // ─── Extracted modules ────────────────────────────────────────────────────────
-import { ModelsTab }      from './settings/ModelsTab';
 import { ProvidersTab }   from './settings/ProvidersTab';
 import { EmbeddingsTab }  from './settings/EmbeddingsTab';
 import { WebSearchTab }   from './settings/WebSearchTab';
@@ -23,6 +22,7 @@ import { RecipesTab }     from './settings/RecipesTab';
 import { MemoryTab }      from './settings/MemoryTab';
 import { ShellTab }       from './settings/ShellTab';
 import { OptionalAssetsTab } from './settings/OptionalAssetsTab';
+import { CloudStorageTab } from './settings/CloudStorageTab';
 import { decorateIconOnlyButtons } from './settings/decorateIconOnlyButtons';
 
 // Re-export for backward compatibility (used in main.ts and other places)
@@ -31,7 +31,7 @@ export { ContentEditorModal } from './settings/ContentEditorModal';
 
 // ---------------------------------------------------------------------------
 
-export type TabId = 'providers' | 'agent-behaviour' | 'customize' | 'advanced' | 'help';
+export type TabId = 'providers' | 'agent-behaviour' | 'customize' | 'connections' | 'advanced' | 'help';
 
 const HELP_URL = 'https://github.com/KD-Leon/nova-vault';
 
@@ -49,6 +49,7 @@ export class AgentSettingsTab extends PluginSettingTab {
     private activeProvidersSubTab: string = 'providers';
     private activeAgentSubTab: string = 'modes';
     private activeCustomizeSubTab: string = 'skills';
+    private activeConnectionsSubTab: string = 'connectors';
     private activeAdvancedSubTab: string = 'interface';
 
     constructor(app: App, plugin: ObsidianAgentPlugin) {
@@ -81,10 +82,11 @@ export class AgentSettingsTab extends PluginSettingTab {
     openAt(tab: TabId, subTab?: string): void {
         this.activeTab = tab;
         if (subTab) {
-            if (tab === 'providers') this.activeProvidersSubTab = subTab;
+            if (tab === 'providers')      this.activeProvidersSubTab = subTab;
             if (tab === 'agent-behaviour') this.activeAgentSubTab = subTab;
-            if (tab === 'customize') this.activeCustomizeSubTab = subTab;
-            if (tab === 'advanced') this.activeAdvancedSubTab = subTab;
+            if (tab === 'customize')      this.activeCustomizeSubTab = subTab;
+            if (tab === 'connections')    this.activeConnectionsSubTab = subTab;
+            if (tab === 'advanced')       this.activeAdvancedSubTab = subTab;
         }
         this.redraw();
     }
@@ -120,9 +122,10 @@ export class AgentSettingsTab extends PluginSettingTab {
     private buildTabNav(container: HTMLElement): void {
         const nav = container.createDiv('agent-settings-nav');
         const tabs: { id: TabId; label: string; icon: string }[] = [
-            { id: 'providers',       label: t('settings.group.providers'),       icon: 'plug'         },
+            { id: 'providers',       label: t('settings.group.providers'),       icon: 'cpu'          },
             { id: 'agent-behaviour', label: t('settings.group.agentBehaviour'), icon: 'users-round'  },
-            { id: 'customize',       label: t('settings.group.customize'),       icon: 'toolbox'      },
+            { id: 'customize',       label: t('settings.group.customize'),       icon: 'blocks'       },
+            { id: 'connections',     label: t('settings.group.connections'),     icon: 'cable'        },
             { id: 'advanced',        label: t('settings.group.advanced'),        icon: 'settings-2'   },
             { id: 'help',            label: t('settings.group.help'),            icon: 'help-circle'  },
         ];
@@ -153,6 +156,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (this.activeTab === 'providers')       this.buildProvidersTab(content);
         if (this.activeTab === 'agent-behaviour') this.buildAgentBehaviourTab(content);
         if (this.activeTab === 'customize')       this.buildCustomizeTab(content);
+        if (this.activeTab === 'connections')     this.buildConnectionsTab(content);
         if (this.activeTab === 'advanced')        this.buildAdvancedTab(content);
 
         // FIX-29-17 / Review-Bot AUDIT-031: replaced the CSS `:has()`
@@ -212,19 +216,19 @@ export class AgentSettingsTab extends PluginSettingTab {
     }
 
     // ---------------------------------------------------------------------------
-    // Providers tab (Models + Embeddings + Web Search)
+    // Providers tab (Models -- provider credentials + embeddings)
     // ---------------------------------------------------------------------------
 
     private buildProvidersTab(container: HTMLElement): void {
-        // 2026-05-18 restructure: MCP moves out of Providers (a "Connector"
-        // is a tool surface for the agent, not a model/api provider) into
-        // the new Customize tab.
+        // 2026-08-27 IA restructure: Web Search moves to the Connections
+        // group (it is an external service, not a model provider); the
+        // legacy ModelsTab route is removed (was ghost-only, label said
+        // "legacy", reachable solely via deep link).
         this.buildSubTabNav(
             container,
             [
-                { id: 'providers',   label: t('settings.tab.providers') },
-                { id: 'embeddings',  label: t('settings.tab.embeddings') },
-                { id: 'web-search',  label: t('settings.tab.webSearch') },
+                { id: 'providers',   label: t('settings.tab.providers'),  icon: 'plug'   },
+                { id: 'embeddings',  label: t('settings.tab.embeddings'), icon: 'layers' },
             ],
             this.activeProvidersSubTab,
             (id) => { this.activeProvidersSubTab = id; this.redraw(); },
@@ -232,9 +236,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
         const rerender = () => this.redraw();
         if (this.activeProvidersSubTab === 'providers')   new ProvidersTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeProvidersSubTab === 'models')      new ModelsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeProvidersSubTab === 'embeddings')  new EmbeddingsTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeProvidersSubTab === 'web-search')  new WebSearchTab(this.plugin, this.app, rerender).build(content);
     }
 
     // ---------------------------------------------------------------------------
@@ -248,10 +250,11 @@ export class AgentSettingsTab extends PluginSettingTab {
         // wie die Sidebar, nur die inline-spezifischen Trigger-Settings
         // leben hier).
         const subTabs = [
-            { id: 'modes',       label: t('settings.tab.modes')       },
-            { id: 'permissions', label: t('settings.tab.autoApprove') },
-            { id: 'memory',      label: t('settings.tab.memory')      },
-            { id: 'inline-chat', label: t('settings.tab.inlineChat')  },
+            { id: 'modes',       label: t('settings.tab.modes'),       icon: 'users-round'        },
+            { id: 'permissions', label: t('settings.tab.autoApprove'), icon: 'shield-check'       },
+            { id: 'memory',      label: t('settings.tab.memory'),      icon: 'brain'              },
+            { id: 'loop',        label: t('settings.tab.loop'),        icon: 'refresh-cw'         },
+            { id: 'inline-chat', label: t('settings.tab.inlineChat'),  icon: 'text-cursor-input'  },
         ];
         this.activeAgentSubTab = this.resolveActiveSubTab(subTabs, this.activeAgentSubTab);
         this.buildSubTabNav(container, subTabs, this.activeAgentSubTab,
@@ -267,16 +270,18 @@ export class AgentSettingsTab extends PluginSettingTab {
     }
 
     // ---------------------------------------------------------------------------
-    // Customize tab (Skills + Connectors + Prompts + Workflows + Rules)
+    // Customize tab (Skills + Prompts + Workflows + Rules + Recipes)
     // ---------------------------------------------------------------------------
 
     private buildCustomizeTab(container: HTMLElement): void {
+        // 2026-08-27 IA restructure: MCP connectors move to the new
+        // Connections group; Recipes gets a real nav entry (was ghost-only).
         const subTabs = [
-            { id: 'skills',     label: t('settings.tab.skills')     },
-            { id: 'connectors', label: t('settings.tab.connectors') },
-            { id: 'prompts',    label: t('settings.tab.prompts')    },
-            { id: 'workflows',  label: t('settings.tab.workflows')  },
-            { id: 'rules',      label: t('settings.tab.rules')      },
+            { id: 'skills',     label: t('settings.tab.skills'),     icon: 'puzzle'               },
+            { id: 'prompts',    label: t('settings.tab.prompts'),    icon: 'message-square-text'  },
+            { id: 'workflows',  label: t('settings.tab.workflows'),  icon: 'workflow'             },
+            { id: 'rules',      label: t('settings.tab.rules'),      icon: 'scale'                },
+            { id: 'recipes',    label: t('settings.tab.recipes'),    icon: 'book-open'            },
         ];
         this.activeCustomizeSubTab = this.resolveActiveSubTab(subTabs, this.activeCustomizeSubTab);
         this.buildSubTabNav(container, subTabs, this.activeCustomizeSubTab,
@@ -284,7 +289,6 @@ export class AgentSettingsTab extends PluginSettingTab {
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
         const rerender = () => this.redraw();
         if (this.activeCustomizeSubTab === 'skills')     new SkillsTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeCustomizeSubTab === 'connectors') new McpTab(this.plugin, this.app, rerender).build(content);
         if (this.activeCustomizeSubTab === 'prompts')    new PromptsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeCustomizeSubTab === 'workflows')  new WorkflowsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeCustomizeSubTab === 'rules')      new RulesTab(this.plugin, this.app, rerender).build(content);
@@ -292,14 +296,41 @@ export class AgentSettingsTab extends PluginSettingTab {
     }
 
     // ---------------------------------------------------------------------------
-    // Advanced tab (Interface + Vault + Data & diagnostics)
+    // Connections tab (MCP + Web Search + Cloud storage -- external services)
+    // ---------------------------------------------------------------------------
+
+    private buildConnectionsTab(container: HTMLElement): void {
+        // 2026-08-27 IA restructure: everything that "reaches outside the
+        // vault" lives here -- MCP servers (tools), web search (knowledge),
+        // cloud storage (files). One mental model: external services.
+        const subTabs = [
+            { id: 'connectors',  label: t('settings.tab.connectors'),   icon: 'cable'  },
+            { id: 'web-search',  label: t('settings.tab.webSearch'),    icon: 'globe'  },
+            { id: 'cloud',       label: t('settings.tab.cloudStorage'), icon: 'cloud'  },
+        ];
+        this.activeConnectionsSubTab = this.resolveActiveSubTab(subTabs, this.activeConnectionsSubTab);
+        this.buildSubTabNav(container, subTabs, this.activeConnectionsSubTab,
+            (id) => { this.activeConnectionsSubTab = id; this.redraw(); });
+        const content = container.createDiv({ cls: 'agent-settings-subcontent' });
+        const rerender = () => this.redraw();
+        if (this.activeConnectionsSubTab === 'connectors')  new McpTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeConnectionsSubTab === 'web-search')  new WebSearchTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeConnectionsSubTab === 'cloud')       new CloudStorageTab(this.plugin, this.app, rerender).build(content);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Advanced tab (Interface + Vault + Plugin API + Data & diagnostics)
     // ---------------------------------------------------------------------------
 
     private buildAdvancedTab(container: HTMLElement): void {
+        // 2026-08-27 IA restructure: cloud storage moves to Connections;
+        // Plugin API + Optional assets get real nav entries (were ghosts).
         const subTabs = [
-            { id: 'interface', label: t('settings.tab.interface') },
-            { id: 'vault',     label: t('settings.tab.vault')     },
-            { id: 'data',      label: t('settings.tab.dataDiagnostics') },
+            { id: 'interface',       label: t('settings.tab.interface'),       icon: 'sliders-horizontal' },
+            { id: 'vault',           label: t('settings.tab.vault'),           icon: 'folder-open'        },
+            { id: 'plugin-api',      label: t('settings.tab.pluginApi'),       icon: 'terminal'           },
+            { id: 'optional-assets', label: t('settings.tab.optionalAssets'),  icon: 'package'            },
+            { id: 'data',            label: t('settings.tab.dataDiagnostics'), icon: 'activity'           },
         ];
         this.activeAdvancedSubTab = this.resolveActiveSubTab(subTabs, this.activeAdvancedSubTab);
         this.buildSubTabNav(

@@ -50,6 +50,9 @@ const KNOWN_SECRET_KEYS: ReadonlySet<string> = new Set([
     'cloudflareApiToken',
     'relayToken',
     'mcpServerToken',
+    // Cloud storage (S3-compatible) -- secretAccessKey is encrypted at rest
+    // via SafeStorage but must never land in a backup ZIP.
+    'secretAccessKey',
     // AUDIT-038 ISSUE-001: provider-credential fields that
     // providerCredentialCrypto encrypts at rest but the export path
     // forgot. gatewayHeaderValue carries the Bedrock-gateway

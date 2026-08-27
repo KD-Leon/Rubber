@@ -1,12 +1,11 @@
 /**
  * Language-pack coordination (FEAT-42-05).
  *
- * English is bundled into main.js. The eight other locales ship as
- * on-demand JSON packs (release assets, hash-pinned in
- * src/_generated/locale-hashes.ts). This module ties the i18n layer to the
- * OptionalAssetManager: it builds the spec for the active locale, loads and
- * applies an installed pack at boot, and reports whether a download is
- * pending so the host can offer it once.
+ * English and Chinese (simplified + traditional) are bundled into main.js.
+ * 2026-08-27: the six on-demand pack locales (de/ja/ko/es/fr/ru) are paused;
+ * SUPPORTED_LOCALES no longer contains them, so no pack is resolved or
+ * downloaded. This module keeps coordinating whatever pack locales are
+ * (re-)enabled in i18n/index.ts.
  */
 
 import type { Plugin } from 'obsidian';
@@ -17,14 +16,8 @@ import type { Translations } from './types';
 
 /** Human-readable names for the Settings UI and boot prompt. */
 export const LOCALE_LABELS: Record<Exclude<SupportedLocale, 'en'>, string> = {
-    de: 'Deutsch',
     zh: '简体中文 (Simplified Chinese)',
     'zh-TW': '繁體中文 (Traditional Chinese)',
-    ja: '日本語 (Japanese)',
-    ko: '한국어 (Korean)',
-    es: 'Español (Spanish)',
-    fr: 'Français (French)',
-    ru: 'Русский (Russian)',
 };
 
 /** The pack-code used in filenames/hashes (lowercase locale). */

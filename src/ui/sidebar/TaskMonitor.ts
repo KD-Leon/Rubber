@@ -18,7 +18,8 @@ import type ObsidianAgentPlugin from '../../main';
 import type { ApiHandler } from '../../api/types';
 import { getModelKey } from '../../types/settings';
 import { computeCost, computeCostForBuckets, type UsageByModel } from '../../core/pricing/ModelPricing';
-import { TaskTelemetry, formatTelemetryFooter, type RequestTelemetryEntry } from '../../core/telemetry/TaskTelemetry';
+import { TaskTelemetry, type RequestTelemetryEntry } from '../../core/telemetry/TaskTelemetry';
+import { renderTelemetryFooter } from './telemetryFooter';
 import { VaultDataFileAdapter } from '../../core/storage/VaultDataFileAdapter';
 import { getAgentDataDir } from '../../core/utils/agentFolder';
 
@@ -170,14 +171,14 @@ export class TaskMonitor {
         // (question round) does not send the cost line to an orphaned bubble.
         const footerEl = this.footerEl();
         if (!footerEl) return;
-        footerEl.setText(formatTelemetryFooter({
+        renderTelemetryFooter(footerEl, {
             inputTokens,
             outputTokens,
             cacheReadTokens: cR,
             cacheCreationTokens: cW,
             costEur: cost.totalEur,
             isSubscription,
-        }));
+        });
         footerEl.classList.remove('agent-u-hidden');
 
         // FEAT-24-05: visible signal when the task's running cost crosses the

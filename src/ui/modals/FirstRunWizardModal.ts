@@ -78,7 +78,7 @@ export class FirstRunWizardModal extends Modal {
     /** Template language preset from the Obsidian app language. */
     private static defaultTemplatesLang(): string {
         const locale = resolveLocale(getLanguage());
-        if (locale === 'de' || locale === 'en') return locale;
+        if (locale === 'en') return locale;
         return 'other';
     }
 
@@ -87,11 +87,6 @@ export class FirstRunWizardModal extends Modal {
         const names: Partial<Record<SupportedLocale, string>> = {
             zh: 'Simplified Chinese',
             'zh-TW': 'Traditional Chinese',
-            ja: 'Japanese',
-            ko: 'Korean',
-            es: 'Spanish',
-            fr: 'French',
-            ru: 'Russian',
         };
         return names[resolveLocale(getLanguage())] ?? '';
     }

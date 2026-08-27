@@ -602,6 +602,52 @@ export interface WebToolsSettings {
 }
 
 // ---------------------------------------------------------------------------
+// Cloud Storage Settings (S3-compatible object storage)
+// ---------------------------------------------------------------------------
+
+export interface CloudStorageSettings {
+    /** Master toggle -- gates media auto-upload and folder sync */
+    enabled: boolean;
+    /**
+     * S3-compatible endpoint WITHOUT bucket, e.g.
+     * https://s3.eu-central-1.amazonaws.com or
+     * https://<accountid>.r2.cloudflarestorage.com
+     */
+    endpoint: string;
+    /** AWS region of the bucket (us-east-1 works for most S3-compat services) */
+    region: string;
+    bucket: string;
+    accessKeyId: string;
+    /** Encrypted at rest via SafeStorageService (ADR-019 pass-through) */
+    secretAccessKey: string;
+    /**
+     * Public read base URL used when inserting links into notes,
+     * e.g. https://cdn.example.com or https://bucket.s3.amazonaws.com
+     * Empty => private bucket; the media handler then refuses to insert.
+     */
+    publicBaseUrl: string;
+    /** Object key prefix for pasted/dropped media */
+    mediaPrefix: string;
+    /**
+     * Vault-relative folder that is kept bidirectionally in sync with the
+     * remote mirrorPrefix. Empty string = folder sync disabled.
+     */
+    syncFolder: string;
+    /** Object key prefix mirroring syncFolder (defaults to syncFolder name) */
+    remotePrefix?: string;
+    /**
+     * Tombstones for rename/delete propagation: vault-abs path -> epoch ms.
+     * A tombstoned path is deleted remotely instead of downloaded back;
+     * entries older than 30 days are pruned on the next sync pass.
+     */
+    tombstones?: Record<string, number>;
+    /** Auto-sync interval in minutes. 0 = only manual "sync now". */
+    syncIntervalMinutes: number;
+    /** Epoch ms of the last successful folder sync (status display) */
+    lastSyncAt: number;
+}
+
+// ---------------------------------------------------------------------------
 // Advanced API Settings (Sprint 1.5)
 // ---------------------------------------------------------------------------
 
@@ -1151,6 +1197,10 @@ export interface ObsidianAgentSettings {
 
     // Web Tools (Phase 1.1)
     webTools: WebToolsSettings;
+
+    // Cloud storage (S3-compatible). Optional so pre-existing data.json
+    // files load without a migration step.
+    cloudStorage?: CloudStorageSettings;
 
     // Chat History & Memory
     /** Enable persistent chat history (conversations saved in plugin directory) */
@@ -2248,6 +2298,20 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         autoDailyTargetPath: '.vault-operator/cache/backups',
         retentionCount: 7,
         lastAutoBackupAt: 0,
+    },
+    cloudStorage: {
+        enabled: false,
+        endpoint: '',
+        region: 'us-east-1',
+        bucket: '',
+        accessKeyId: '',
+        secretAccessKey: '',
+        publicBaseUrl: '',
+        mediaPrefix: 'obsidian/media',
+        syncFolder: '',
+        remotePrefix: '',
+        syncIntervalMinutes: 0,
+        lastSyncAt: 0,
     },
     pluginApi: {
         enabled: true,

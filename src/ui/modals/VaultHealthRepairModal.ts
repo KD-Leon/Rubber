@@ -9,7 +9,7 @@
  * FIX-15: Detailed findings + selective repair
  */
 
-import { Modal, Notice, setIcon, Platform, TFile, getLanguage, Setting } from 'obsidian';
+import { Modal, Notice, setIcon, setTooltip, Platform, TFile, getLanguage, Setting } from 'obsidian';
 import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
 import { generateShortId } from '../../core/utils/generateShortId';
@@ -212,14 +212,7 @@ export class VaultHealthRepairModal extends Modal {
     }
 
     onOpen(): void {
-        // FIX-19-05-02: der Icon-Klick zeigt IMMER die Uebersicht mit beiden
-        // Tabs (Findings + Knowledge review). Der fruehere autoApplyOnOpen-
-        // Bypass sprang direkt in runRepair und uebersprang render() -- bei
-        // vielen reparierbaren Findings sah der Nutzer die Uebersicht nie
-        // und landete ungefragt auf der Plan-Freigabe. Das widersprach
-        // ADR-165 (nichts schreiben, bevor der Nutzer den Plan gesehen hat).
-        // Auto-Apply bleibt als vorangehakter "Apply selected fixes"-Knopf
-        // IN der Uebersicht.
+        this.modalEl.addClass('mod-vault-health-modal');
         this.render();
     }
 
@@ -773,73 +766,75 @@ export class VaultHealthRepairModal extends Modal {
         }
     }
 
+    private renderHeader(
+        container: HTMLElement,
+        findings: HealthFinding[],
+        repairableCount: number,
+    ): void {
+        const header = container.createDiv('vault-health-header');
+
+        const titleRow = header.createDiv('vault-health-title-row');
+        titleRow.createEl('h3', { text: t('modal.vaultHealthRepair.findingsTitle', { count: findings.length }) });
+
+        const rightGroup = titleRow.createDiv('vault-health-header-right');
+        const lastAt = this.plugin.vaultHealthService?.getLastRunAt() ?? null;
+        if (lastAt !== null) {
+            rightGroup.createSpan({
+                cls: 'vault-health-header-time',
+                text: formatRelativeTime(lastAt, Date.now()),
+            });
+        }
+
+        const rescanBtn = rightGroup.createEl('button', {
+            cls: 'vault-health-rescan-btn',
+            text: t('modal.vaultHealthRepair.rescanBtn'),
+        });
+        setIcon(rescanBtn, 'refresh-cw');
+        setTooltip(rescanBtn, t('modal.vaultHealthRepair.rescanBtn'), { delay: 50, placement: 'top' });
+        rescanBtn.addEventListener('click', () => {
+            rescanBtn.setAttr('disabled', 'true');
+            void this.refreshAndShowFindings();
+        });
+
+        const summaryText = repairableCount > 0
+            ? `共 ${findings.length} 个发现项，其中 ${repairableCount} 项可自动修复（执行前将自动创建快照）。`
+            : `共 ${findings.length} 个发现项，暂无自动修复项。`;
+        header.createEl('p', {
+            cls: 'vault-health-subtitle',
+            text: summaryText,
+        });
+    }
+
     private showFindings(): void {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass('vault-health-modal');
         this.renderTopTabs(contentEl);
 
-        // IMP-20-06-01 W3-T1: cluster_freshness moved into the
-        // Knowledge-review tab. Filter it out of the Findings view so
-        // the same finding does not surface in both places.
         const findingsForView = this.findings.filter((f) => !KNOWLEDGE_REVIEW_CHECKS.has(f.check));
         const repairableCount = findingsForView.filter(isRepairableFinding).length;
         const totalCount = findingsForView.length;
 
-        contentEl.createEl('h3', { text: t('modal.vaultHealthRepair.findingsTitle', { count: totalCount }) });
-        // FIX-19-05-08: eine knappe Zeile, was der Check ueberhaupt prueft.
-        contentEl.createEl('p', {
-            cls: 'agent-settings-section-hint',
-            text: t('modal.vaultHealthRepair.findingsIntro'),
-        });
+        // Render clean minimalist header
+        this.renderHeader(contentEl, findingsForView, repairableCount);
 
-        // FIX-19-05-04: Re-Check-Knopf + "zuletzt geprueft"-Zeitstempel. Der
-        // Nutzer konnte vorher nicht wissen, wie alt die Befunde sind oder wie
-        // er den Check manuell neu startet.
-        this.renderRescanToolbar(contentEl);
-
-        // FIX-19-02-06: Aufschluesselung OHNE Zusatzklick.
-        //
-        // Die gesamte Transparenzarbeit aus W1-W4 lag hinter dem
-        // Reparieren-Button: wer der Zahl nicht traut und deshalb nicht
-        // klickt, sah exakt dieselbe Ansicht wie vor den Wellen (der Diff
-        // gegen den Pre-W1-Stand war byte-identisch). Hier steht jetzt, was
-        // die Zahl ueberhaupt bedeutet -- und wie viel NICHT angezeigt wird.
-        //
-        // Bewusst nur aus bereits vorhandenen Daten (this.findings im
-        // Speicher, plus die im Check ermittelten Totals). Kein
-        // planRepairTargets-Aufruf: der scannt den ganzen Vault und darf
-        // nicht an jedem Render haengen.
-        this.renderFindingsBreakdown(contentEl, findingsForView);
-
-        // IMP-19-01-01 AC-01..04: Auto-fix CTA banner for deterministic
-        // rule findings. Renders only when at least one repairable
-        // finding exists. The button selects every REPAIRABLE finding
-        // (across severities and sections) and routes through the
-        // existing runRepair() path so the safety net (Checkpoint,
-        // Undo, per-row error handling) is shared.
-        if (repairableCount > 0) {
-            this.renderAutoFixBanner(contentEl, repairableCount);
-            this.renderStickyApplyBar(contentEl);
-        }
-
-        // FEAT-19-18: Severity filter tabs.
+        // Severity filter chips
         const counts = {
             high: findingsForView.filter(f => f.severity === 'high').length,
             medium: findingsForView.filter(f => f.severity === 'medium').length,
             low: findingsForView.filter(f => f.severity === 'low').length,
         };
         const filterRow = contentEl.createDiv('vault-health-filter-row');
-        const tabs: Array<{ key: SeverityFilter; label: string }> = [
-            { key: 'all', label: t('modal.vaultHealthRepair.filterAll', { count: totalCount }) },
-            { key: 'high', label: t('modal.vaultHealthRepair.filterHigh', { count: counts.high }) },
-            { key: 'medium', label: t('modal.vaultHealthRepair.filterMedium', { count: counts.medium }) },
-            { key: 'low', label: t('modal.vaultHealthRepair.filterLow', { count: counts.low }) },
+        const tabs: Array<{ key: SeverityFilter; label: string; count: number }> = [
+            { key: 'all', label: '全部', count: totalCount },
+            { key: 'high', label: '高', count: counts.high },
+            { key: 'medium', label: '中', count: counts.medium },
+            { key: 'low', label: '低', count: counts.low },
         ];
         for (const tab of tabs) {
             const btn = filterRow.createEl('button', {
-                text: tab.label,
                 cls: 'vault-health-filter-tab' + (this.severityFilter === tab.key ? ' is-active' : ''),
+                text: `${tab.label} ${tab.count}`,
             });
             btn.addEventListener('click', () => {
                 this.severityFilter = tab.key;
@@ -863,18 +858,20 @@ export class VaultHealthRepairModal extends Modal {
             grouped.set(f.check, entry);
         });
 
+        const listContainer = contentEl.createDiv('vault-health-list-container');
+
         // Render each check type as a collapsible section
         for (const [check, { findings: checkFindings, indices }] of grouped) {
             const isRepairable = REPAIRABLE_CHECKS.has(check);
             const label = CHECK_LABELS[check] ?? check;
             const severity = checkFindings[0].severity;
 
-            const details = contentEl.createEl('details', { cls: 'vault-health-section' });
+            const details = listContainer.createEl('details', { cls: 'vault-health-section' });
             if (isRepairable) details.setAttribute('open', '');
 
             const summary = details.createEl('summary', { cls: 'vault-health-section-header' });
             summary.createSpan({ cls: `vault-health-severity severity-${severity}`, text: severity });
-            summary.createSpan({ text: ' ' + t('modal.vaultHealthRepair.sectionCount', { label, count: checkFindings.length }) });
+            summary.createSpan({ cls: 'section-header-title', text: `${label} (${checkFindings.length})` });
             if (!isRepairable) {
                 summary.createSpan({ cls: 'vault-health-tag-info', text: ' ' + t('modal.vaultHealthRepair.reviewRecommendedTag') });
             }
@@ -885,26 +882,14 @@ export class VaultHealthRepairModal extends Modal {
                 const finding = checkFindings[i];
                 const globalIdx = indices[i];
 
-                const row = content.createDiv('vault-health-finding-row');
+                const item = content.createDiv('vault-health-item');
+                const row = item.createDiv('vault-health-item-main');
 
-                // Checkbox (per-finding repairable check; FIX-19-01-04
-                // splits orphans by kind so with_context findings get
-                // no checkbox even though the section type is repairable).
+                // Checkbox
                 if (isRepairableFinding(finding)) {
-                    // FIX-19-02-11: die Abwahl muss das Neuzeichnen ueberleben.
-                    //
-                    // Vorher setzte jeder Render checked = true und trug den
-                    // Befund wieder in die Auswahl ein. Ein Klick auf einen
-                    // Severity-Filter genuegte, um alle Abwahlen zu
-                    // verwerfen -- der Nutzer haekelte etwas ab, wechselte
-                    // den Filter und schrieb es beim naechsten Reparieren
-                    // doch. Die Abwahl liegt jetzt in einem eigenen Set,
-                    // das nach Befund-Identitaet schluesselt statt nach
-                    // Listenindex, weil der Index sich beim Neuaufbau
-                    // verschiebt.
                     const key = findingKey(finding);
                     const isDeselected = this.deselectedFindings.has(key);
-                    const checkbox = row.createEl('input', { type: 'checkbox' });
+                    const checkbox = row.createEl('input', { type: 'checkbox', cls: 'vault-health-checkbox' });
                     checkbox.checked = !isDeselected;
                     if (isDeselected) {
                         this.selectedFindings.delete(globalIdx);
@@ -923,7 +908,7 @@ export class VaultHealthRepairModal extends Modal {
                     });
                 }
 
-                // Primary note (first path)
+                // Note link
                 const primaryPath = finding.paths[0];
                 if (primaryPath) {
                     const noteLink = row.createSpan({ cls: 'vault-health-note-link' });
@@ -934,23 +919,22 @@ export class VaultHealthRepairModal extends Modal {
                     });
                 }
 
-                // Additional paths count
                 if (finding.paths.length > 1) {
                     row.createSpan({
                         cls: 'vault-health-path-count',
-                        text: ' ' + t('modal.vaultHealthRepair.relatedCount', { count: finding.paths.length - 1 }),
+                        text: `(另有 ${finding.paths.length - 1} 篇相关)`,
                     });
                 }
 
                 // Action buttons (right side of row)
-                const actions = row.createDiv('vault-health-finding-actions');
+                const actions = row.createDiv('vault-health-item-actions');
 
-                // Discuss with agent (all finding types)
+                // Discuss with agent
                 const discussBtn = actions.createEl('button', {
                     cls: 'vault-health-icon-btn',
-                    attr: { 'aria-label': t('modal.vaultHealthRepair.discussAria') },
                 });
                 setIcon(discussBtn, 'message-square');
+                setTooltip(discussBtn, '在对话中讨论', { delay: 50, placement: 'top' });
                 discussBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     const prompt = this.buildFindingPrompt(finding);
@@ -960,15 +944,12 @@ export class VaultHealthRepairModal extends Modal {
                     }
                 });
 
-                // FIX-19-01-12: Ersatz fuer den geloeschten Move-Repair.
-                // Oeffnet die Kandidaten-Auswahl, die EINGEHENDE Links auf die
-                // Orphan-Notes schreibt (nur das beendet den Orphan-Status).
                 if (finding.check === 'orphans') {
                     const linkBtn = actions.createEl('button', {
                         cls: 'vault-health-icon-btn',
-                        attr: { 'aria-label': t('modal.vaultHealthRepair.orphanSuggestAria') },
                     });
                     setIcon(linkBtn, 'link');
+                    setTooltip(linkBtn, '推荐反向链接', { delay: 50, placement: 'top' });
                     linkBtn.addEventListener('click', (ev) => {
                         ev.stopPropagation();
                         const service = this.plugin.vaultHealthService;
@@ -984,64 +965,70 @@ export class VaultHealthRepairModal extends Modal {
                     });
                 }
 
-                // FEAT-19-18: BA-25 Action-Buttons fuer Lint-Findings.
-                if (finding.check === 'source_concentration' && finding.cluster) {
-                    const antiEchoBtn = actions.createEl('button', {
-                        cls: 'vault-health-icon-btn',
-                        attr: { 'aria-label': t('modal.vaultHealthRepair.antiEchoAria') },
-                    });
-                    setIcon(antiEchoBtn, 'search');
-                    antiEchoBtn.addEventListener('click', (ev) => {
-                        ev.stopPropagation();
-                        const prompt = `Run anti_echo_search for cluster "${finding.cluster}" to surface alternative sources beyond the dominant domain.`;
-                        this.close();
-                        this.onDiscuss?.(prompt);
-                    });
-                }
-                if (finding.check === 'cluster_freshness' && finding.cluster) {
-                    const refreshBtn = actions.createEl('button', {
-                        cls: 'vault-health-icon-btn',
-                        attr: { 'aria-label': t('modal.vaultHealthRepair.discussFreshnessAria') },
-                    });
-                    setIcon(refreshBtn, 'refresh-cw');
-                    refreshBtn.addEventListener('click', (ev) => {
-                        ev.stopPropagation();
-                        const prompt = `Cluster "${finding.cluster}" ist ueber Halbwertszeit. Schlage einen Web-Search-Update-Pass und passende Source-Notes zum Deep-Ingest vor.`;
-                        this.close();
-                        this.onDiscuss?.(prompt);
-                    });
-                }
-
-                // Skip/dismiss (all finding types)
+                // Skip/dismiss
                 const skipBtn = actions.createEl('button', {
                     cls: 'vault-health-icon-btn',
-                    attr: { 'aria-label': t('modal.vaultHealthRepair.dismissFindingAria') },
                 });
-                setIcon(skipBtn, 'eye-off');
+                setIcon(skipBtn, 'x');
+                setTooltip(skipBtn, '忽略', { delay: 50, placement: 'top' });
                 skipBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
                     ev.preventDefault();
-                    console.debug('[VaultHealth] Dismiss clicked:', finding.check, finding.paths[0]);
-                    this.dismissFinding(finding, globalIdx, row, content, details, check, checkFindings.length);
+                    this.dismissFinding(finding, globalIdx, item, content, details, check, checkFindings.length);
                 });
 
-                // Fix preview or description
-                const preview = content.createDiv('vault-health-fix-preview');
-                if (isRepairable) {
-                    preview.setText(this.getFixPreview(finding));
-                } else {
-                    preview.setText(this.getInfoText(finding));
-                }
+                // Detail preview text
+                const preview = item.createDiv('vault-health-fix-preview');
+                preview.setText(
+                    isRepairable ? this.getFixPreview(finding) : this.getInfoText(finding)
+                );
             }
         }
 
-        // Bottom buttons
-        const btnRow = contentEl.createDiv('vault-health-btn-row');
+        // Bottom Unified Footer
+        const btnRow = contentEl.createDiv('vault-health-footer');
+
+        const leftGroup = btnRow.createDiv('vault-health-footer-left');
+        const repairable = this.findings.filter(isRepairableFinding);
+        if (repairable.length > 0) {
+            const allOff = repairable.every((f) => this.deselectedFindings.has(findingKey(f)));
+            const toggleBtn = leftGroup.createEl('button', {
+                cls: 'vault-health-toggle-btn',
+                text: allOff ? '全选' : '取消全选',
+            });
+            toggleBtn.addEventListener('click', () => {
+                if (allOff) {
+                    this.deselectedFindings.clear();
+                } else {
+                    for (const f of repairable) this.deselectedFindings.add(findingKey(f));
+                }
+                this.selectedFindings.clear();
+                this.showFindings();
+            });
+            leftGroup.createSpan('vault-health-footer-count').setText(`已选 ${this.selectedFindings.size} / ${repairable.length}`);
+        }
+
+        const rightGroup = btnRow.createDiv('vault-health-footer-right');
+
+        // Show dismissed findings button
+        const dismissedCount = this.plugin.vaultHealthService?.getDismissedCount() ?? 0;
+        if (dismissedCount > 0) {
+            const dismissedBtn = rightGroup.createEl('button', {
+                text: `已忽略 (${dismissedCount})`,
+                cls: 'vault-health-reset-btn',
+            });
+            dismissedBtn.addEventListener('click', () => {
+                this.showDismissedList(contentEl);
+            });
+        }
+
+        const closeBtn = rightGroup.createEl('button', { text: t('modal.vaultHealth.closeBtn') });
+        closeBtn.addEventListener('click', () => this.close());
 
         if (repairableCount > 0) {
-            const repairBtn = btnRow.createEl('button', {
+            const repairBtn = rightGroup.createEl('button', {
                 cls: 'mod-cta vault-health-repair-btn',
-                text: t('modal.vaultHealthRepair.repairSelected', { count: this.selectedFindings.size }),
+                text: `应用修复 (${this.selectedFindings.size})`,
             });
             repairBtn.addEventListener('click', () => {
                 if (this.selectedFindings.size === 0) {
@@ -1052,59 +1039,20 @@ export class VaultHealthRepairModal extends Modal {
                 repairBtn.setText(t('modal.vaultHealth.repairing'));
                 this.runRepair();
             });
-
-            // FEAT-19-05-01: Batch-Start. Nur wenn mehr weak-Paare hinter dem
-            // 20er-Deckel warten, als ein Normal-Lauf zeigt -- sonst waere der
-            // Knopf ohne Nutzen. Ein Klick fixt bis zu 250 statt 20.
-            const weakTotals = this.plugin.vaultHealthService?.getCheckTotals()?.weakClusters;
-            if (weakTotals && weakTotals.total > weakTotals.shown) {
-                const batchBtn = btnRow.createEl('button', {
-                    cls: 'vault-health-batch-btn',
-                    text: t('modal.vaultHealthRepair.batchRepair', { total: weakTotals.total }),
-                });
-                batchBtn.addEventListener('click', () => {
-                    batchBtn.disabled = true;
-                    batchBtn.setText(t('modal.vaultHealth.repairing'));
-                    void this.runBatchRepair();
-                });
-            }
         }
 
-        // Show dismissed findings button
-        const dismissedCount = this.plugin.vaultHealthService?.getDismissedCount() ?? 0;
-        if (dismissedCount > 0) {
-            const dismissedBtn = btnRow.createEl('button', {
-                text: t('modal.vaultHealthRepair.dismissedCount', { count: dismissedCount }),
-                cls: 'vault-health-reset-btn',
-            });
-            dismissedBtn.addEventListener('click', () => {
-                this.showDismissedList(contentEl);
-            });
-        }
-
-        const closeBtn = btnRow.createEl('button', { text: t('modal.vaultHealth.closeBtn') });
-        closeBtn.addEventListener('click', () => this.close());
-
-        // FIX-19-02-18: der Knopf entsteht WEIT vor den Checkboxen.
-        //
-        // renderStickyApplyBar laeuft oben in dieser Methode, die
-        // Checkbox-Zeilen kommen erst danach und tragen sich dabei in
-        // selectedFindings ein. Der Knopf las den Set also, solange er noch
-        // leer war, und zeigte "(0)", waehrend sichtbar 70 Haken gesetzt
-        // waren. Genau das hat der Nutzer gemeldet. Ein Nachziehen am Ende
-        // des Renders kostet nichts und haelt beide Zahlen zusammen.
         this.updateRepairButton();
     }
 
     private updateRepairButton(): void {
         const btn = this.contentEl.querySelector('.vault-health-repair-btn');
         if (btn instanceof HTMLButtonElement) {
-            btn.setText(t('modal.vaultHealthRepair.repairSelected', { count: this.selectedFindings.size }));
+            btn.setText(`应用修复 (${this.selectedFindings.size})`);
         }
-        // IMP-19-01-02: sticky top button shares the same counter.
-        const stickyBtn = this.contentEl.querySelector('.vault-health-apply-sticky-btn');
-        if (stickyBtn instanceof HTMLButtonElement) {
-            stickyBtn.setText(t('modal.vaultHealthRepair.applySelectedFixes', { count: this.selectedFindings.size }));
+        const countSpan = this.contentEl.querySelector('.vault-health-footer-count');
+        if (countSpan instanceof HTMLElement) {
+            const repairable = this.findings.filter(isRepairableFinding);
+            countSpan.setText(`已选 ${this.selectedFindings.size} / ${repairable.length}`);
         }
     }
 

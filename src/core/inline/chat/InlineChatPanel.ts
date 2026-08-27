@@ -72,6 +72,13 @@ export interface InlineCheckpointMarker {
     onMoreMenu?: (anchor: HTMLElement) => void;
 }
 
+export interface InlineResultActions {
+    onReplace: () => void | Promise<void>;
+    onInsertBelow: () => void | Promise<void>;
+    onCopy: () => void | Promise<void>;
+    onClose: () => void;
+}
+
 export interface InlinePanelHandle {
     appendMessage(message: InlinePanelMessage): string;
     appendStreamChunk(bubbleId: string, chunk: string): void;
@@ -107,6 +114,9 @@ export interface InlinePanelHandle {
     setStatus(text: string, level?: 'info' | 'error'): void;
     /** Re-render the forced-workflow status chip in the composer (FEAT-02-12). */
     refreshForcedWorkflow(): void;
+    startResultStream(): void;
+    updateStreamingResult(chunk: string): void;
+    showResult(markdown: string, actions: InlineResultActions): Promise<void>;
     close(): void;
 }
 
@@ -243,6 +253,13 @@ export class InlineChatPanel {
     private readonly renderMarkdownHook?: RenderMarkdownHook;
 
     private boundKeyDown: ((ev: KeyboardEvent) => void) | null = null;
+    private boundPointerDown: ((ev: MouseEvent | PointerEvent) => void) | null = null;
+
+    private resultContainerEl: HTMLElement | null = null;
+    private resultContentEl: HTMLElement | null = null;
+    private resultActionsEl: HTMLElement | null = null;
+    private rawResultText = '';
+    private activeResultActions: InlineResultActions | null = null;
     /**
      * Cleanup handles for drag + resize listeners. The panel
      * registers document-scoped pointermove/pointerup pairs only
@@ -336,20 +353,12 @@ export class InlineChatPanel {
         // widget, so a preview duplicate inside the panel just wastes
         // vertical space. Skip it. Popover mode still renders it because
         // the overlay covers the selection.
+        // Selection preview (collapsible, 3 lines visible by default).
         if (this.displayMode === 'popover') {
             this.buildSelectionPreview(root, doc);
         }
 
-        // Header close button (× in top-right corner).
-        const closeBtn = createEl('button');
-        closeBtn.classList.add('agent-inline-panel__close');
-        closeBtn.setAttribute('type', 'button');
-        closeBtn.setAttribute('title', 'Close (esc)');
-        closeBtn.textContent = '×';
-        closeBtn.addEventListener('click', (ev) => { ev.preventDefault(); this.close(); });
-        root.appendChild(closeBtn);
-
-        // Body: chat messages.
+        // Body: chat messages (hidden when empty).
         const body = createDiv();
         body.classList.add('agent-inline-panel__body');
         root.appendChild(body);
@@ -362,38 +371,35 @@ export class InlineChatPanel {
         root.appendChild(status);
         this.statusEl = status;
 
-        // Composer (sidebar-style: .chat-input-container > .chat-input-wrapper).
-        const composerContainer = createDiv();
-        composerContainer.classList.add('chat-input-container');
-        composerContainer.classList.add('agent-inline-panel__composer');
-        const wrapper = createDiv();
-        wrapper.classList.add('chat-input-wrapper');
-        composerContainer.appendChild(wrapper);
-
-        // FEAT-02-12: forced-workflow status row, above the attachment chips.
-        // AttachmentHandler empties the chip bar on every render, so the forced
-        // indicator needs its own element the attachment handler never touches.
+        // Context / forced workflow row (hidden when empty)
         const forcedChip = createDiv();
         forcedChip.classList.add('chat-context-chips', 'agent-inline-forced-row');
-        wrapper.appendChild(forcedChip);
+        root.appendChild(forcedChip);
         this.forcedChipEl = forcedChip;
 
-        // Attachment chip bar (sidebar-style: above textarea). Empty by
-        // default; AttachmentHandler renders chips into this element.
+        // Attachment chip bar (hidden when empty)
         const chipBar = createDiv();
         chipBar.classList.add('chat-attachment-chips');
-        wrapper.appendChild(chipBar);
+        root.appendChild(chipBar);
         this.chipBarEl = chipBar;
 
-        const textarea = createEl('textarea');
-        textarea.classList.add('chat-textarea');
-        textarea.setAttribute('rows', '3');
-        textarea.setAttribute('placeholder', 'Type your message here…');
+        // Single-row sleek Command Bar
+        const bar = createDiv('agent-inline-bar');
+
+        const prefixIcon = bar.createSpan('agent-inline-bar__icon');
+        this.setIcon(prefixIcon, 'sparkles');
+
+        const textarea = bar.createEl('textarea', { cls: 'agent-inline-bar__input' });
+        textarea.setAttribute('rows', '1');
+        textarea.setAttribute('placeholder', '询问 AI 或输入指令... (Enter 发送, Esc 关闭)');
         textarea.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') {
+                ev.preventDefault();
+                this.close();
+                return;
+            }
             // Autocomplete first: lets the dropdown handle Up/Down/Enter/Esc.
             if (this.autocomplete !== null && this.autocomplete.handleKeyDown(ev) === true) return;
-            // Issue #54.1: keep "Enter sends" here but also honor the
-            // Ctrl/Cmd+Enter accelerator for parity with the sidebar composer.
             if (shouldSendOnEnter(ev, true)) {
                 ev.preventDefault();
                 this.sendFromInput();
@@ -404,39 +410,22 @@ export class InlineChatPanel {
                 void this.autocomplete.handleInput();
             }
         });
-        wrapper.appendChild(textarea);
         this.inputEl = textarea;
 
-        // Build the autocomplete handler now that the textarea + wrapper exist.
+        // Build the autocomplete handler
         if (this.autocompleteFactory !== undefined) {
             try {
-                // User feedback 2026-06-24: autocomplete dropdown was
-                // clipped + non-scrollable in the inline panel. Cause:
-                // the inner `.chat-input-wrapper` has `overflow: hidden`
-                // (intentional, to clip the bordered composer). The
-                // sidebar avoids this by mounting the dropdown into the
-                // OUTER `.chat-input-container` (which has no overflow
-                // clip and lets the dropdown rise above the composer).
-                // Match that wiring here so the dropdown opens upward
-                // and scrolls just like in the sidebar.
-                this.autocomplete = this.autocompleteFactory(textarea, composerContainer);
+                this.autocomplete = this.autocompleteFactory(textarea, bar);
             } catch (e) {
                 console.debug('[InlineChatPanel] autocompleteFactory failed:', e);
             }
         }
 
-        const toolbar = createDiv();
-        toolbar.classList.add('chat-toolbar');
-        const left = createDiv();
-        left.classList.add('chat-toolbar-left');
-        const right = createDiv();
-        right.classList.add('chat-toolbar-right');
+        const actions = bar.createDiv('agent-inline-bar__actions');
 
-        // Model button: same visual treatment as the sidebar. Click
-        // opens the model picker (live wired by PluginWiring against
-        // plugin.settings.activeModels + activeModelKey).
+        // Model button: compact pill
         const modelBtn = this.makeToolbarButton(doc, this.initialModelLabel);
-        modelBtn.classList.add('model-button');
+        modelBtn.classList.add('agent-inline-bar__model-btn');
         modelBtn.setAttribute('title', this.initialModelTooltip);
         modelBtn.setAttribute('type', 'button');
         modelBtn.addEventListener('click', (ev) => {
@@ -445,78 +434,27 @@ export class InlineChatPanel {
                 this.onShowModelMenu(modelBtn, this.ctx, this.makeHandle());
             }
         });
-        left.appendChild(modelBtn);
+        actions.appendChild(modelBtn);
         this.modelButtonEl = modelBtn;
 
-        // "+" menu (attach / context / skills / prompts / workflows).
-        const plusBtn = this.makeIconButton(doc, 'plus', 'Add context');
-        plusBtn.classList.add('plus-button');
-        plusBtn.addEventListener('click', (ev) => {
-            ev.preventDefault();
-            if (this.onShowPlusMenu !== undefined && this.rootEl !== null) {
-                this.onShowPlusMenu(plusBtn, this.ctx, this.makeHandle());
-            }
-        });
-        left.appendChild(plusBtn);
-
-        // Magnifier = Lookup quick-action (the inline-specific addition).
-        const lookupBtn = this.makeIconButton(doc, 'search', 'Lookup selection');
-        lookupBtn.classList.add('lookup-button');
-        lookupBtn.addEventListener('click', (ev) => {
-            ev.preventDefault();
-            this.dispatch('lookup', '');
-        });
-        left.appendChild(lookupBtn);
-
-        // "..." menu (other actions: rewrite, translate, summarize, ...).
-        const ellipsisBtn = this.makeIconButton(doc, 'ellipsis', 'More actions');
-        ellipsisBtn.classList.add('ellipsis-button');
-        ellipsisBtn.addEventListener('click', (ev) => {
-            ev.preventDefault();
-            if (this.onShowMoreMenu !== undefined && this.rootEl !== null) {
-                this.onShowMoreMenu(ellipsisBtn, this.ctx, this.makeHandle());
-            }
-        });
-        left.appendChild(ellipsisBtn);
-
-        // Stop button (right side, hidden by default; the orchestrator
-        // toggles visibility via handle.setRunning()).
-        const stopBtn = this.makeIconButton(doc, 'square', 'Stop');
-        stopBtn.classList.add('stop-button');
-        stopBtn.classList.add('agent-u-hidden');
+        // Stop button (shown only while generating)
+        const stopBtn = this.makeIconButton(doc, 'square', '停止');
+        stopBtn.classList.add('agent-inline-bar__send-btn', 'agent-inline-bar__stop-btn', 'agent-u-hidden');
         stopBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             if (this.onStop !== undefined) this.onStop();
         });
-        right.appendChild(stopBtn);
+        actions.appendChild(stopBtn);
         this.stopButtonEl = stopBtn;
 
-        // FEAT-33-12: Send-to-Sidebar button -- direct right neighbour of
-        // Send. Tooltip "Continue this chat in the sidebar". The
-        // orchestrator decides at click-time whether to surface a busy
-        // notice or call the InlineToSidebarTransferService.
-        if (this.onSendToSidebar !== undefined) {
-            const toSidebarBtn = this.makeIconButton(doc, 'arrow-right-to-line', 'Continue this chat in the sidebar');
-            toSidebarBtn.classList.add('send-to-sidebar-button');
-            toSidebarBtn.addEventListener('click', (ev) => {
-                ev.preventDefault();
-                if (this.onSendToSidebar !== undefined) this.onSendToSidebar();
-            });
-            right.appendChild(toSidebarBtn);
-            this.sendToSidebarButtonEl = toSidebarBtn;
-        }
-
-        // Send button (right side).
-        const sendBtn = this.makeIconButton(doc, 'send-horizontal', 'Send');
-        sendBtn.classList.add('send-button');
+        // Send button
+        const sendBtn = this.makeIconButton(doc, 'send-horizontal', '发送');
+        sendBtn.classList.add('agent-inline-bar__send-btn');
         sendBtn.addEventListener('click', (ev) => { ev.preventDefault(); this.sendFromInput(); });
-        right.appendChild(sendBtn);
+        actions.appendChild(sendBtn);
         this.sendButtonEl = sendBtn;
 
-        toolbar.appendChild(left);
-        toolbar.appendChild(right);
-        wrapper.appendChild(toolbar);
-        root.appendChild(composerContainer);
+        root.appendChild(bar);
 
         // Resize handle: small grip in the bottom-right corner.
         // Pointer drag adjusts width + height. Owned by the root so
@@ -544,14 +482,38 @@ export class InlineChatPanel {
             if (resizeHandle !== null) this.attachResizeHandle(resizeHandle, root);
         }
 
-        // Esc closes; outside-click does NOT close.
+        // Esc and clicking outside close the panel; Enter confirms replace when result is ready
         this.boundKeyDown = (ev: KeyboardEvent) => {
             if (ev.key === 'Escape') {
                 ev.preventDefault();
-                this.close();
+                if (this.activeResultActions !== null) {
+                    this.activeResultActions.onClose();
+                } else {
+                    this.close();
+                }
+                return;
+            }
+            if (ev.key === 'Enter' && this.activeResultActions !== null && !ev.shiftKey) {
+                ev.preventDefault();
+                void this.activeResultActions.onReplace();
+                return;
             }
         };
         doc.addEventListener('keydown', this.boundKeyDown);
+
+        this.boundPointerDown = (ev: MouseEvent | PointerEvent) => {
+            if (this.rootEl === null) return;
+            const target = ev.target as HTMLElement | null;
+            if (target === null) return;
+            // Don't close if clicked inside the inline panel
+            if (this.rootEl.contains(target)) return;
+            // Don't close if clicked on Obsidian context menus, suggestion dropdowns, popovers
+            if (target.closest('.menu, .suggestion-container, .suggestion-item, .popover, .agent-inline-panel, .agent-inline-action-pill') !== null) {
+                return;
+            }
+            this.close();
+        };
+        doc.addEventListener('pointerdown', this.boundPointerDown, true);
 
         try { textarea.focus(); } catch { /* test stub */ }
 
@@ -563,6 +525,14 @@ export class InlineChatPanel {
         const wasOpen = this.rootEl !== null;
         this.forcedWorkflowRefreshUnsub?.();
         this.forcedWorkflowRefreshUnsub = null;
+        if (this.resultContainerEl !== null) {
+            this.resultContainerEl.remove();
+            this.resultContainerEl = null;
+        }
+        this.resultContentEl = null;
+        this.resultActionsEl = null;
+        this.rawResultText = '';
+        this.activeResultActions = null;
         if (this.rootEl !== null) {
             this.rootEl.remove();
             this.rootEl = null;
@@ -584,6 +554,10 @@ export class InlineChatPanel {
         if (this.boundKeyDown !== null) {
             this.containerEl.ownerDocument.removeEventListener('keydown', this.boundKeyDown);
             this.boundKeyDown = null;
+        }
+        if (this.boundPointerDown !== null) {
+            this.containerEl.ownerDocument.removeEventListener('pointerdown', this.boundPointerDown, true);
+            this.boundPointerDown = null;
         }
         if (this.dragCleanup !== null) {
             try { this.dragCleanup(); } catch { /* swallow */ }
@@ -714,6 +688,9 @@ export class InlineChatPanel {
         const value = this.inputEl.value.trim();
         if (value.length === 0) return;
         this.inputEl.value = '';
+        this.inputEl.disabled = true;
+        this.inputEl.setAttribute('placeholder', 'AI 正在思考并生成...');
+        this.setRunning(true);
         this.dispatch('free-chat', value);
     }
 
@@ -732,8 +709,107 @@ export class InlineChatPanel {
             setRunning: (running) => this.setRunning(running),
             setStatus: (t, l) => this.setStatus(t, l),
             refreshForcedWorkflow: () => this.renderForcedWorkflowChip(),
+            startResultStream: () => this.startResultStream(),
+            updateStreamingResult: (chunk) => this.updateStreamingResult(chunk),
+            showResult: (markdown, actions) => this.showResult(markdown, actions),
             close: () => this.close(),
         };
+    }
+
+    private startResultStream(): void {
+        if (this.resultContainerEl !== null) {
+            this.resultContainerEl.remove();
+            this.resultContainerEl = null;
+        }
+        if (this.rootEl === null) return;
+        const container = createDiv('agent-inline-result');
+        const content = container.createDiv('agent-inline-result__content');
+        this.resultContainerEl = container;
+        this.resultContentEl = content;
+        this.rawResultText = '';
+        this.activeResultActions = null;
+        this.rootEl.appendChild(container);
+    }
+
+    private updateStreamingResult(chunk: string): void {
+        if (this.resultContentEl === null) return;
+        this.rawResultText += chunk;
+        this.resultContentEl.textContent = this.rawResultText;
+    }
+
+    private async showResult(markdown: string, actions: InlineResultActions): Promise<void> {
+        this.activeResultActions = actions;
+        if (this.resultContainerEl === null || this.resultContentEl === null) {
+            this.startResultStream();
+        }
+        if (this.resultContentEl === null || this.resultContainerEl === null) return;
+
+        while (this.resultContentEl.firstChild !== null) {
+            this.resultContentEl.removeChild(this.resultContentEl.firstChild);
+        }
+
+        if (this.renderMarkdownHook !== undefined) {
+            try {
+                await this.renderMarkdownHook(this.resultContentEl, markdown);
+            } catch (e) {
+                console.debug('[InlineChatPanel] renderMarkdown failed:', e);
+                this.resultContentEl.textContent = markdown;
+            }
+        } else {
+            this.resultContentEl.textContent = markdown;
+        }
+
+        if (this.resultActionsEl !== null) {
+            this.resultActionsEl.remove();
+        }
+
+        const actionsBar = this.resultContainerEl.createDiv('agent-inline-result__actions');
+        this.resultActionsEl = actionsBar;
+
+        // Button 1: Replace
+        const replaceBtn = actionsBar.createEl('button', {
+            cls: 'agent-inline-result__btn agent-inline-result__btn--primary',
+            attr: { type: 'button', title: '替换选中文本 (Enter)' },
+        });
+        replaceBtn.createSpan({ text: '替换原文字' });
+        replaceBtn.createSpan({ cls: 'agent-inline-result__kbd', text: 'Enter' });
+        replaceBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            void actions.onReplace();
+        });
+
+        // Button 2: Insert below
+        const insertBtn = actionsBar.createEl('button', {
+            cls: 'agent-inline-result__btn',
+            attr: { type: 'button', title: '在选区下方换行插入' },
+        });
+        insertBtn.createSpan({ text: '插入到下方' });
+        insertBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            void actions.onInsertBelow();
+        });
+
+        // Button 3: Copy
+        const copyBtn = actionsBar.createEl('button', {
+            cls: 'agent-inline-result__btn',
+            attr: { type: 'button', title: '复制到剪贴板' },
+        });
+        copyBtn.createSpan({ text: '复制' });
+        copyBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            void actions.onCopy();
+        });
+
+        // Button 4: Close
+        const closeBtn = actionsBar.createEl('button', {
+            cls: 'agent-inline-result__btn agent-inline-result__btn--ghost',
+            attr: { type: 'button', title: '关闭 (Esc)' },
+        });
+        closeBtn.createSpan({ text: '关闭' });
+        closeBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            actions.onClose();
+        });
     }
 
     /**
@@ -769,6 +845,11 @@ export class InlineChatPanel {
         }
         if (this.stopButtonEl !== null) {
             this.stopButtonEl.classList.toggle('agent-u-hidden', running !== true);
+        }
+        if (this.inputEl !== null && running === false) {
+            this.inputEl.disabled = false;
+            this.inputEl.setAttribute('placeholder', '询问 AI 或输入指令... (Enter 发送, Esc 关闭)');
+            try { this.inputEl.focus(); } catch { /* test stub */ }
         }
     }
 

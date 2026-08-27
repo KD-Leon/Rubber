@@ -1,5 +1,6 @@
 <p align="center">
-  <h1 align="center">✨ Nova Vault</h1>
+  <img src="docs/public/assets/duck.svg" width="120" alt="Nova Vault duck mascot">
+  <h1 align="center">Nova Vault</h1>
   <p align="center">
     <strong>极简美学设计 · 深度知识库 RAG 与自主 Multi-Agent 智能体</strong>
   </p>

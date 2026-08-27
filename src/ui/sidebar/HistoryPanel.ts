@@ -6,7 +6,7 @@
  */
 
 import { Notice, setIcon } from 'obsidian';
-import type { ConversationMeta, ConversationStore } from '../../core/history/ConversationStore';
+import type { ConversationMeta, ConversationSearchHit, ConversationStore } from '../../core/history/ConversationStore';
 import { t } from '../../i18n';
 
 // ---------------------------------------------------------------------------
@@ -71,6 +71,10 @@ export class HistoryPanel {
     private threadFilter: string | null = null;
     /** FIX-PERF-38: per-date-group lazy-render page size. */
     private groupPageSize = new Map<DateGroup, number>();
+    /** Full-text matches for the current filter (null = not scanned yet). */
+    private contentHits: ConversationSearchHit[] | null = null;
+    /** Race guard: only the newest content search may paint results. */
+    private contentSearchSeq = 0;
 
     constructor(
         private store: ConversationStore,
@@ -199,7 +203,7 @@ export class HistoryPanel {
             const filterRow = this.panelEl.createDiv({ cls: 'history-panel-filter' });
             const filterInput = filterRow.createEl('input', {
                 type: 'text',
-                placeholder: '搜索历史对话...',
+                placeholder: t('ui.history.searchPlaceholder'),
                 cls: 'history-panel-filter-input',
             });
             filterInput.value = this.filterText;
@@ -210,6 +214,7 @@ export class HistoryPanel {
                 filterDebounce = window.setTimeout(() => {
                     filterDebounce = null;
                     this.renderList(listEl);
+                    void this.runContentSearch(listEl);
                 }, 200);
             });
         }
@@ -426,6 +431,60 @@ export class HistoryPanel {
                     this.renderList(container);
                 });
             }
+        }
+
+        // Full-text matches live below the title list so instant title
+        // filtering stays snappy while the disk scan runs in background.
+        this.renderContentMatches(container);
+    }
+
+    /**
+     * Scan conversation bodies for the current filter text (debounced by
+     * the input handler). Results are race-guarded: only the newest scan
+     * paints, and a stale result is discarded.
+     */
+    private async runContentSearch(container: HTMLElement): Promise<void> {
+        const q = this.filterText.trim();
+        if (q.length < 2) {
+            this.contentHits = null;
+            container.querySelector('.history-content-matches')?.remove();
+            return;
+        }
+        const seq = ++this.contentSearchSeq;
+        this.contentHits = null;
+        container.querySelector('.history-content-matches')?.remove();
+        const pending = container.createDiv({ cls: 'history-content-matches' });
+        pending.createDiv({ cls: 'history-content-label', text: t('ui.history.searchingContent') });
+        const hits = await this.store.searchContent(q);
+        if (seq !== this.contentSearchSeq || !container.isConnected) return;
+        this.contentHits = hits;
+        pending.remove();
+        this.renderContentMatches(container);
+    }
+
+    /** Paint (or clear) the "content matches" section under the list. */
+    private renderContentMatches(container: HTMLElement): void {
+        container.querySelector('.history-content-matches')?.remove();
+        const q = this.filterText.trim();
+        if (q.length < 2) return;
+        const section = container.createDiv({ cls: 'history-content-matches' });
+        section.createDiv({ cls: 'history-content-label', text: t('ui.history.contentMatches') });
+        if (this.contentHits === null) return; // still scanning; placeholder painted by runContentSearch
+        if (this.contentHits.length === 0) {
+            section.createDiv({ cls: 'history-content-empty', text: t('ui.history.contentNoMatches') });
+            return;
+        }
+        for (const hit of this.contentHits) {
+            const row = section.createDiv({ cls: 'history-row history-row-content' });
+            const info = row.createDiv({ cls: 'history-row-info' });
+            info.createDiv({ cls: 'history-row-title', text: hit.conversation.title });
+            info.createDiv({ cls: 'history-row-snippet', text: hit.snippet });
+            const meta = info.createDiv({ cls: 'history-row-meta' });
+            meta.createSpan({ text: t('ui.history.matchCount', { count: hit.matchCount }) });
+            row.addEventListener('click', () => {
+                this.onLoad(hit.conversation.id);
+                this.close();
+            });
         }
     }
 }

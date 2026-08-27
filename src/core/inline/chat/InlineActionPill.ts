@@ -54,10 +54,10 @@ export interface InlineActionPillOptions {
 }
 
 /** Estimated pill width in px, used for viewport-edge clamping. */
-const PILL_WIDTH_PX = 22;
+const PILL_WIDTH_PX = 86;
 /** Estimated pill height in px, used to anchor above the selection. */
-const PILL_HEIGHT_PX = 22;
-/** Gap between the pill and the container right edge. */
+const PILL_HEIGHT_PX = 28;
+/** Gap between the pill and the selection edge. */
 const PILL_GAP_PX = 6;
 
 export class InlineActionPill {
@@ -75,21 +75,15 @@ export class InlineActionPill {
     constructor(options: InlineActionPillOptions) {
         this.target = options.target;
         this.onClick = options.onClick;
-        this.label = options.label ?? 'Open inline AI chat';
-        // Default: lucide `wand-sparkles` (pencil+sparkles isn't in the
-        // Lucide set yet -- closest visual match is the magic wand with
-        // sparkles, which reads as "AI edit"). Fallback to `sparkles` if
-        // the active Obsidian / Lucide build doesn't ship the wand variant.
-        this.icon = options.icon ?? 'wand-sparkles';
+        this.label = options.label ?? 'Ask AI';
+        this.icon = options.icon ?? 'sparkles';
     }
 
     /** True when the pill is currently mounted. Surfaced for tests. */
     get isVisible(): boolean { return this.el !== null; }
 
     /**
-     * Render the pill above the trailing edge of the first selection
-     * rect. No-op when the selection is missing, collapsed, or every
-     * rect is empty (e.g. selection across an image-only span).
+     * Render the pill directly ABOVE the start of the selection rect.
      */
     show(): void {
         this.hide();
@@ -99,11 +93,6 @@ export class InlineActionPill {
         if (sel === null || sel.rangeCount === 0) return;
         const range = sel.getRangeAt(0);
         if (range.collapsed === true) return;
-        // User feedback 2026-06-24: pill must not appear when the user
-        // selects text in the sidebar chat (or any other non-editor
-        // surface like settings modals). Hard-gate on a markdown-view
-        // ancestor; without this the pill mounted for sidebar chat
-        // bubbles too, where clicking it makes no sense.
         if (isRangeInsideMarkdownView(range) === false) return;
         const anchor = pickAnchor(range);
         if (anchor === null) return;
@@ -113,43 +102,31 @@ export class InlineActionPill {
         pill.setAttribute('type', 'button');
         pill.setAttribute('aria-label', this.label);
         pill.setAttribute('title', this.label);
-        // Defensive: prevent the pill from joining the tab-order. A
-        // Tab focus would blur CodeMirror and collapse the selection.
         pill.setAttribute('tabindex', '-1');
 
-        // Position (user feedback 2026-06-24, eighth pass):
-        //   x = right edge of the rightmost word + GAP, so the pill
-        //       sits OUTSIDE the text column to the right.
-        //   y = vertical centre of the last line, with the pill's own
-        //       centre aligned to it. The pill is therefore on the
-        //       SAME vertical band as the last line, but OUTSIDE the
-        //       text horizontally -- no overlap with selected text.
+        // Position: directly above the first line of selection
         const viewportW = win?.innerWidth ?? 1024;
         const viewportH = win?.innerHeight ?? 768;
-        const desiredLeft = anchor.rightmostRight + PILL_GAP_PX;
-        const left = Math.max(4, Math.min(desiredLeft, viewportW - PILL_WIDTH_PX - 4));
-        const desiredTop = anchor.lastLineCenterY - PILL_HEIGHT_PX / 2;
-        const top = Math.max(4, Math.min(desiredTop, viewportH - PILL_HEIGHT_PX - 4));
-        pill.setCssStyles({ left: `${left}px`, top: `${top}px` });
-        setIcon(pill, this.icon);
-        // Defensive fallback (user feedback 2026-06-24, "kein icon angezeigt"):
-        // if the requested lucide name does not exist in the bundled
-        // Lucide build, setIcon is a silent no-op and the chromeless
-        // pill is invisible. Try a known-good icon, and as a last
-        // resort drop a Unicode sparkle glyph so the user sees SOMETHING.
-        if (hasRenderedIcon(pill) === false) {
-            setIcon(pill, 'sparkles');
+        let desiredTop = anchor.firstLineTop - PILL_HEIGHT_PX - PILL_GAP_PX;
+        if (desiredTop < 8) {
+            desiredTop = anchor.bottommostBottom + PILL_GAP_PX;
         }
-        if (hasRenderedIcon(pill) === false) {
-            pill.textContent = '✨';
+        const desiredLeft = anchor.startLeft;
+        const left = Math.max(8, Math.min(desiredLeft, viewportW - PILL_WIDTH_PX - 8));
+        const top = Math.max(8, Math.min(desiredTop, viewportH - PILL_HEIGHT_PX - 8));
+        pill.setCssStyles({ left: `${left}px`, top: `${top}px` });
+
+        const iconSpan = pill.createSpan({ cls: 'agent-inline-action-pill__icon' });
+        setIcon(iconSpan, this.icon);
+        if (hasRenderedIcon(iconSpan) === false) {
+            setIcon(iconSpan, 'sparkles');
+        }
+        if (hasRenderedIcon(iconSpan) === false) {
+            iconSpan.textContent = '✨';
         }
 
-        // mousedown swallow: preventDefault on mousedown blocks the
-        // browser's DEFAULT focus shift to the button. Without it the
-        // editor (CodeMirror) would blur, its selection would collapse,
-        // and the chat orchestrator would open with an EMPTY selection.
-        // The click event still fires normally -- preventDefault on
-        // mousedown does not cancel the click sequence.
+        pill.createSpan({ cls: 'agent-inline-action-pill__label', text: 'Ask AI' });
+
         pill.addEventListener('mousedown', (ev) => {
             ev.preventDefault();
         });
@@ -235,45 +212,16 @@ function hasRenderedIcon(el: HTMLElement): boolean {
 }
 
 interface Anchor {
-    /** Right edge of the rightmost rect in the selection (= the visually rightmost word). */
-    rightmostRight: number;
-    /** Vertical centre of the bottommost (= last) line of the selection. */
-    lastLineCenterY: number;
+    startLeft: number;
+    firstLineTop: number;
+    bottommostBottom: number;
 }
 
 /**
- * Resolve anchor coordinates from the live selection.
- *
- * User spec (ninth pass, 2026-06-24):
- *   x = right edge of the LAST LINE OF TEXT that contains part of the
- *       selection -- NOT the right edge of the selection itself. When
- *       the selection ends mid-line, the rest of the line still
- *       contributes its right edge, so the pill always lands beyond
- *       the visually last word of the line and never lands mid-text.
- *       Implementation: walk from range.endContainer to the nearest
- *       block container (.cm-line in CM6 source/live-preview;
- *       .markdown-rendered p/li in reading view) and use that
- *       element's right edge. Falls back to max(rect.right) of the
- *       selection itself when no such container is found (e.g. unit
- *       tests with a plain DOM stub).
- *   y = vertical centre of the bottommost (= last) line of the
- *       selection. The pill's vertical centre aligns to it so the
- *       icon reads as belonging to the last line of the marked block.
- *
- * Falls back to getBoundingClientRect when getClientRects is unavailable.
- */
-/**
- * True iff the Range's start sits inside a markdown editor or reading
- * view. Used by show() to suppress the pill in non-editor surfaces
- * (sidebar chat, settings modals, popout windows without a markdown
- * leaf). Mirrors the trustedRoot selector list from
- * lineRightAtEndOfRange() so both guards stay in lock-step.
+ * True iff the Range's start sits inside a markdown editor or reading view.
  */
 function isRangeInsideMarkdownView(range: Range): boolean {
     try {
-        // Use endContainer (mirrors lineRightAtEndOfRange so both guards
-        // share the same anchor; if the END of the selection sits in a
-        // markdown view, the pill is valid).
         const node = range.endContainer;
         const el: Element | null = node.nodeType === 1
             ? node as Element
@@ -289,29 +237,25 @@ function pickAnchor(range: Range): Anchor | null {
     try {
         const rects = range.getClientRects?.();
         if (rects !== undefined && rects.length > 0) {
-            let selectionMaxRight = Number.NEGATIVE_INFINITY;
+            let startLeft = Number.POSITIVE_INFINITY;
+            let firstLineTop = Number.POSITIVE_INFINITY;
             let bottommostBottom = Number.NEGATIVE_INFINITY;
-            let bottommostTop = 0;
             for (let i = 0; i < rects.length; i += 1) {
                 const r = rects[i];
                 if (r.width <= 0 && r.height <= 0) continue;
-                if (r.right > selectionMaxRight) selectionMaxRight = r.right;
+                if (firstLineTop === Number.POSITIVE_INFINITY) {
+                    firstLineTop = r.top;
+                    startLeft = r.left;
+                }
                 if (r.bottom > bottommostBottom) {
                     bottommostBottom = r.bottom;
-                    bottommostTop = r.top;
                 }
             }
-            if (selectionMaxRight !== Number.NEGATIVE_INFINITY && bottommostBottom !== Number.NEGATIVE_INFINITY) {
-                // Override the x edge with the line's RIGHT EDGE so the
-                // pill clears the visually last word of the line, not
-                // just the last marked word.
-                const lineRight = lineRightAtEndOfRange(range);
-                const rightmostRight = lineRight !== null && lineRight > selectionMaxRight
-                    ? lineRight
-                    : selectionMaxRight;
+            if (firstLineTop !== Number.POSITIVE_INFINITY && bottommostBottom !== Number.NEGATIVE_INFINITY) {
                 return {
-                    rightmostRight,
-                    lastLineCenterY: (bottommostTop + bottommostBottom) / 2,
+                    startLeft,
+                    firstLineTop,
+                    bottommostBottom,
                 };
             }
         }
@@ -319,53 +263,8 @@ function pickAnchor(range: Range): Anchor | null {
     const fallback = range.getBoundingClientRect();
     if (fallback.width === 0 && fallback.height === 0) return null;
     return {
-        rightmostRight: fallback.right,
-        lastLineCenterY: (fallback.top + fallback.bottom) / 2,
+        startLeft: fallback.left,
+        firstLineTop: fallback.top,
+        bottommostBottom: fallback.bottom,
     };
-}
-
-/**
- * Find the right edge of the block-level line that owns the END of the
- * selection. CM6 source / live-preview wraps each editor line in
- * `.cm-line`; reading-view wraps prose in `.markdown-rendered p` /
- * `.markdown-rendered li`. We climb from the end container, find the
- * nearest such block, and read its bounding rect's right edge. Returns
- * null when no recognised container is found so the caller can fall
- * back to the selection's own rightmost edge.
- */
-function lineRightAtEndOfRange(range: Range): number | null {
-    try {
-        const endNode = range.endContainer;
-        const startEl: Element | null = endNode.nodeType === 1
-            ? endNode as Element
-            : endNode.parentElement;
-        if (startEl === null) return null;
-        // AUDIT-034 M-40: constrain the closest() walk to elements that
-        // live inside a markdown view (CM6 editor or rendered preview).
-        // Without this guard a Range whose endContainer sits in some
-        // other Obsidian leaf (settings modal, sidebar) would let
-        // closest() climb into structurally unrelated DOM and return a
-        // bogus right edge.
-        const trustedRoot = startEl.closest('.markdown-source-view, .markdown-reading-view, .markdown-preview-view, .cm-editor');
-        if (trustedRoot === null) return null;
-        // Block-level containers we recognise as "a line of text":
-        //   .cm-line                       CM6 source + live-preview
-        //   .markdown-rendered p / li      reading-view prose + lists
-        //   .markdown-rendered h1..h6      reading-view headings
-        //   .markdown-rendered blockquote  reading-view blockquotes
-        //   .markdown-rendered pre         reading-view code blocks
-        //   .markdown-rendered td / th     reading-view table cells
-        // (Verify follow-up 2026-06-24: previously missed the blockquote /
-        // pre / td/th cases, which let the pill land mid-text in those
-        // contexts.)
-        const lineEl = startEl.closest(
-            '.cm-line, .markdown-rendered p, .markdown-rendered li, .markdown-rendered h1, .markdown-rendered h2, .markdown-rendered h3, .markdown-rendered h4, .markdown-rendered h5, .markdown-rendered h6, .markdown-rendered blockquote, .markdown-rendered pre, .markdown-rendered td, .markdown-rendered th',
-        );
-        if (lineEl === null) return null;
-        const r = lineEl.getBoundingClientRect();
-        if (r.width <= 0 && r.height <= 0) return null;
-        return r.right;
-    } catch {
-        return null;
-    }
 }

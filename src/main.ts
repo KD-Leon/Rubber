@@ -122,6 +122,8 @@ import { loadInstalledLocalePack, activeLocaleSpec, LOCALE_LABELS } from './i18n
 import { OptionalAssetManager } from './core/assets/OptionalAssetManager';
 import type { SupportedLocale } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
+import { MediaUploadHandler } from './core/cloud/MediaUploadHandler';
+import { FolderSyncService } from './core/cloud/FolderSyncService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
 import { ChatGptOAuthService } from './core/auth/ChatGptOAuthService';
 import { KiloAuthService } from './core/security/KiloAuthService';
@@ -305,6 +307,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     episodicExtractor: EpisodicExtractor | null = null;
     recipePromotionService: RecipePromotionService | null = null;
     safeStorage: SafeStorageService;
+    /** Cloud storage (S3-compatible) folder sync. Created in onload. */
+    cloudSync: FolderSyncService | null = null;
     globalFs: GlobalFileService;
     /** IMP-41-03-01: inflight snapshot store for crash recovery. */
     inflightStore: InflightStore | null = null;
@@ -3080,15 +3084,66 @@ export default class ObsidianAgentPlugin extends Plugin {
             },
         });
 
+        // 4b. Cloud storage (S3-compatible): paste/drop media auto-upload
+        //     plus bidirectional folder sync. Event handlers early-return
+        //     when cloudStorage is disabled, so registering them is cheap.
+        this.cloudSync = new FolderSyncService(this);
+        if (this.settings.cloudStorage?.enabled) {
+            new MediaUploadHandler(this).register();
+            const intervalMinutes = this.settings.cloudStorage.syncIntervalMinutes;
+            if (intervalMinutes > 0) {
+                this.registerInterval(window.setInterval(() => {
+                    void this.cloudSync?.syncWithNotices();
+                }, intervalMinutes * 60_000));
+            }
+            // Debounced background pass a few seconds after the last
+            // change settles -- the primary sync mechanism. By quit time
+            // the cloud is already current (community consensus: quit-time
+            // sync is unreliable in Obsidian/Electron, so there is none).
+            let debounceHandle: number | null = null;
+            const scheduleSettleSync = (): void => {
+                if (debounceHandle !== null) window.clearTimeout(debounceHandle);
+                if (!this.settings.cloudStorage?.enabled) return;
+                debounceHandle = window.setTimeout(() => {
+                    debounceHandle = null;
+                    void this.cloudSync?.syncSilently();
+                }, 5_000);
+            };
+            this.registerEvent(this.app.vault.on('create', scheduleSettleSync));
+            this.registerEvent(this.app.vault.on('modify', scheduleSettleSync));
+            this.registerEvent(this.app.vault.on('delete', scheduleSettleSync));
+            this.registerEvent(this.app.vault.on('rename', scheduleSettleSync));
+
+            // Rename/delete propagation: tombstone the old path so the next
+            // pass deletes the stale remote copy instead of downloading it
+            // back. A recreated path clears its tombstone.
+            this.registerEvent(this.app.vault.on('delete', (file) => {
+                this.cloudSync?.recordTombstone(file.path);
+            }));
+            this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+                this.cloudSync?.recordTombstone(oldPath);
+                this.cloudSync?.clearTombstone(file.path);
+            }));
+            this.registerEvent(this.app.vault.on('create', (file) => {
+                this.cloudSync?.clearTombstone(file.path);
+            }));
+        }
+        this.addCommand({
+            id: 'cloud-sync-now',
+            name: t('plugin.commandCloudSync'),
+            callback: () => {
+                void this.cloudSync?.syncWithNotices();
+            },
+        });
+
         // 5. Register settings tab
         this.settingsTab = new AgentSettingsTab(this.app, this);
         this.addSettingTab(this.settingsTab);
-
         // 6. Register deep-link protocol handlers:
         //    obsidian://vault-operator-settings?tab=advanced&sub=backup (new canonical)
         //    obsidian://obsilo-settings?...                              (legacy alias)
         const VALID_SETTINGS_TABS: ReadonlySet<TabId> = new Set<TabId>([
-            'providers', 'agent-behaviour', 'customize', 'advanced', 'help',
+            'providers', 'agent-behaviour', 'customize', 'connections', 'advanced', 'help',
         ]);
         const openSettingsFromParams = (params: Record<string, string>) => {
             const tabParam = params.tab;
@@ -3968,6 +4023,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.mcpServerToken) {
             settings.mcpServerToken = this.safeStorage.decrypt(settings.mcpServerToken);
         }
+        // Cloud storage (S3-compatible) secret key
+        if (settings.cloudStorage?.secretAccessKey) {
+            settings.cloudStorage.secretAccessKey = this.safeStorage.decrypt(settings.cloudStorage.secretAccessKey);
+        }
         // FEAT-04-10: OAuth MCP connector tokens (ADR-155).
         decryptMcpOAuthInPlace(settings, this.safeStorage);
     }
@@ -4048,6 +4107,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Local MCP server token (AUDIT-006 H-1)
         if (copy.mcpServerToken && !this.safeStorage.isEncrypted(copy.mcpServerToken)) {
             copy.mcpServerToken = this.safeStorage.encrypt(copy.mcpServerToken);
+        }
+        // Cloud storage (S3-compatible) secret key
+        if (copy.cloudStorage?.secretAccessKey && !this.safeStorage.isEncrypted(copy.cloudStorage.secretAccessKey)) {
+            copy.cloudStorage.secretAccessKey = this.safeStorage.encrypt(copy.cloudStorage.secretAccessKey);
         }
         // FEAT-04-10: OAuth MCP connector tokens (ADR-155).
         encryptMcpOAuthInPlace(copy, this.safeStorage);

@@ -15,6 +15,7 @@ import { PopoverDismisser, positionPopover } from './popoverShell';
 export interface ChatOptionsToggle {
     icon: string;
     label: string;
+    badge?: string;
     /** Read fresh on open so the switch reflects the current setting. */
     isOn: () => boolean;
     onToggle: (value: boolean) => void;
@@ -23,6 +24,9 @@ export interface ChatOptionsToggle {
 export interface ChatOptionsAction {
     icon: string;
     label: string;
+    badge?: string;
+    stateText?: string;
+    hasChevron?: boolean;
     onClick: () => void;
     /** Optional visibility gate, e.g. "Cancel indexing" only while indexing. */
     isVisible?: () => boolean;
@@ -64,6 +68,9 @@ export class ChatOptionsPopover {
                 const row = togGroup.createDiv('cop-toggle-row');
                 setIcon(row.createSpan('cop-row-icon'), tog.icon);
                 row.createSpan({ cls: 'cop-row-label', text: tog.label });
+                if (tog.badge) {
+                    row.createSpan({ cls: 'cop-row-badge', text: tog.badge });
+                }
                 const host = row.createDiv('cop-row-toggle');
                 const comp = new ToggleComponent(host);
                 comp.setValue(tog.isOn());
@@ -79,6 +86,18 @@ export class ChatOptionsPopover {
                 const row = actGroup.createDiv('cop-action-row');
                 setIcon(row.createSpan('cop-row-icon'), act.icon);
                 row.createSpan({ cls: 'cop-row-label', text: act.label });
+
+                if (act.badge) {
+                    row.createSpan({ cls: 'cop-row-badge', text: act.badge });
+                }
+                if (act.stateText) {
+                    row.createSpan({ cls: 'cop-row-state', text: act.stateText });
+                }
+                if (act.hasChevron !== false) {
+                    const chev = row.createSpan('cop-row-chevron');
+                    setIcon(chev, 'chevron-right');
+                }
+
                 row.addEventListener('click', () => {
                     this.hide();
                     act.onClick();

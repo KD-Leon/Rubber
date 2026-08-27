@@ -429,39 +429,90 @@ export class InlineChatOrchestrator {
     }
 
     private async handleDispatch(args: InlinePanelDispatchArgs, handle: InlinePanelHandle): Promise<void> {
-        // Free-chat: drive the panel-scoped chat controller (true multi-turn).
+        // Free-chat: Direct in-place generation with result card & flexible actions
         if (args.actionId === 'free-chat') {
-            if (this.activeController === null) {
-                handle.setStatus('Panel not initialised.', 'error');
-                return;
-            }
-            // Mid-run typing -> queue as a steering message. The
-            // user bubble still renders so the typist sees what they
-            // pushed; the agent receives it at the next iteration.
-            if (this.activeController.isRunning === true) {
-                const queued = this.activeController.pushSteering(args.userInput);
-                if (queued === true) {
-                    handle.appendMessage({ role: 'user', text: args.userInput });
-                    handle.setStatus('Steering message queued for next iteration.');
-                } else {
-                    handle.setStatus('Steering message ignored (empty or no run).', 'error');
-                }
-                return;
-            }
-            handle.appendMessage({ role: 'user', text: args.userInput });
-            const assistantId = handle.appendMessage({ role: 'assistant', text: '' });
-            handle.setStatus('Thinking…');
             handle.setRunning(true);
+            handle.startResultStream();
+
+            let collected = '';
+            const systemPrompt = `You are a precision AI writing and editing assistant.
+The user wants to transform, generate, answer, explain, or edit text directly in their note.
+Follow the user's instruction precisely.
+Preserve the user's intent, tone, and formatting (links, tags, markdown syntax).
+Match the language of the prompt or text (default to natural Chinese).
+
+CRITICAL CONSTRAINTS:
+- If the user asks for a rewrite, translation, or direct edit, output the final edited text cleanly.
+- If the user asks a question, explanation, or summary, answer clearly, concisely, and cleanly in markdown.
+- Do NOT include conversational pleasantries (e.g. "好的", "没问题", "修改如下:"). Output the substantive result directly.`;
+
+            let userMessage = `Instruction: ${args.userInput}`;
+            if (args.ctx.selectionText.trim().length > 0) {
+                userMessage += `\n\nSelected Text:\n<selection>\n${args.ctx.selectionText}\n</selection>`;
+            }
+
             try {
-                await this.activeController.sendTurn({
-                    userInput: args.userInput,
-                    handle,
-                    assistantBubbleId: assistantId,
-                });
+                const api = this.plugin.apiHandler;
+                if (!api) {
+                    throw new Error('未配置或未连接 AI 模型');
+                }
+                const messages = [{ role: 'user' as const, content: userMessage }];
+                for await (const chunk of api.createMessage(systemPrompt, messages, [])) {
+                    if (chunk.type === 'text' && typeof chunk.text === 'string') {
+                        collected += chunk.text;
+                        handle.updateStreamingResult(chunk.text);
+                    }
+                }
+
+                if (collected.trim().length > 0) {
+                    const selFrom = args.ctx.selectionFrom ?? args.ctx.cursorPos;
+                    const selTo = args.ctx.selectionTo ?? (args.ctx.cursorPos + args.ctx.selectionText.length);
+
+                    await handle.showResult(collected, {
+                        onReplace: async () => {
+                            if (this.editorProbe.writeBackToSelection !== undefined) {
+                                await this.editorProbe.writeBackToSelection({
+                                    notePath: args.ctx.notePath,
+                                    from: selFrom,
+                                    to: selTo,
+                                    content: collected,
+                                });
+                            }
+                            new Notice('已替换所选内容');
+                            this.closePanel();
+                        },
+                        onInsertBelow: async () => {
+                            if (this.editorProbe.writeBackToSelection !== undefined) {
+                                await this.editorProbe.writeBackToSelection({
+                                    notePath: args.ctx.notePath,
+                                    from: selTo,
+                                    to: selTo,
+                                    content: '\n\n' + collected,
+                                });
+                            }
+                            new Notice('已插入到下方');
+                            this.closePanel();
+                        },
+                        onCopy: async () => {
+                            try {
+                                await navigator.clipboard.writeText(collected);
+                                new Notice('已复制到剪贴板');
+                            } catch {
+                                new Notice('复制失败');
+                            }
+                        },
+                        onClose: () => {
+                            this.closePanel();
+                        },
+                    });
+                    return;
+                }
+            } catch (e) {
+                const err = e instanceof Error ? e : new Error(String(e));
+                new Notice(`AI 生成失败: ${err.message}`);
             } finally {
                 handle.setRunning(false);
             }
-            await handle.finalizeBubble(assistantId);
             return;
         }
 

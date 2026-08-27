@@ -151,6 +151,15 @@ export interface ConversationData {
     uiMessages: UiMessage[];
 }
 
+/** One full-text match: the conversation plus where it matched. */
+export interface ConversationSearchHit {
+    conversation: ConversationMeta;
+    /** First matching snippet, trimmed to a readable window. */
+    snippet: string;
+    /** How many messages in this conversation contain the query. */
+    matchCount: number;
+}
+
 interface ConversationIndex {
     version: number;
     conversations: ConversationMeta[];
@@ -537,11 +546,52 @@ export class ConversationStore {
         return this.index.conversations.length;
     }
 
+    /**
+     * Full-text search over persisted conversation bodies (uiMessages).
+     * Scans newest first and stops at the caps, so a large history costs
+     * at most maxConversations file reads per query. Caller debounces.
+     */
+    async searchContent(
+        query: string,
+        opts?: { maxConversations?: number; maxHits?: number },
+    ): Promise<ConversationSearchHit[]> {
+        const q = query.trim().toLowerCase();
+        if (q.length < 2) return [];
+        const maxConversations = opts?.maxConversations ?? 200;
+        const maxHits = opts?.maxHits ?? 40;
+
+        const hits: ConversationSearchHit[] = [];
+        const candidates = this.index.conversations.slice(0, maxConversations);
+        for (const meta of candidates) {
+            if (hits.length >= maxHits) break;
+            const data = await this.load(meta.id);
+            if (!data) continue;
+            let matchCount = 0;
+            let snippet = '';
+            for (const msg of data.uiMessages) {
+                if (!msg.text) continue;
+                const idx = msg.text.toLowerCase().indexOf(q);
+                if (idx === -1) continue;
+                matchCount++;
+                if (!snippet) {
+                    const start = Math.max(0, idx - 40);
+                    const end = Math.min(msg.text.length, idx + q.length + 80);
+                    const body = msg.text.slice(start, end).replace(/\s+/g, ' ').trim();
+                    snippet = `${start > 0 ? '…' : ''}${body}${end < msg.text.length ? '…' : ''}`;
+                }
+            }
+            if (matchCount > 0) {
+                hits.push({ conversation: meta, snippet, matchCount });
+            }
+        }
+        return hits;
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 
-    private getMeta(id: string): ConversationMeta | undefined {
+    getMeta(id: string): ConversationMeta | undefined {
         return this.index.conversations.find((c) => c.id === id);
     }
 
