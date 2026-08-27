@@ -9,6 +9,34 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-08-27
+
+### Cloud storage (S3-compatible) / 云存储（S3 兼容）
+
+- EN: Paste or drag images, audio and video into a note and they upload to your own S3-compatible storage automatically, inserting a public URL. Media is auto-categorized into `images/`, `audio/`, `video/` and `files/` under `obsidian/media/`.
+- EN: Full-vault two-way sync under the `vault/` prefix, triggered 5 s after your last change. A tombstone mechanism propagates renames and deletions to the cloud, so stale duplicates no longer pile up. The sync notice reports upload / download / delete / skip counts.
+- EN: Simplified setup with provider presets and a connection test, plus fixed Tencent Cloud COS SigV4 signing (x-amz-date / x-amz-content-sha256, real payload hash).
+- 中文：粘贴或拖拽图片、音频、视频进笔记即自动上传到自己的 S3 兼容存储，并插入公开链接；媒体按类型自动归档到 `obsidian/media/` 下的 `images/`、`audio/`、`video/`、`files/`。
+- 中文：全库双向同步（`vault/` 前缀），改动停止 5 秒后自动触发；引入墓碑机制，重命名与删除会同步到云端，不再残留重复文件；同步通知显示上传/下载/删除/跳过计数。
+- 中文：配置简化——服务商预设 + 最少字段 + 连接测试；修复腾讯云 COS 的 SigV4 签名（x-amz-date / x-amz-content-sha256、真实负载哈希）。
+
+### Settings & UX / 设置页与交互
+
+- EN: Settings rebuilt into five groups — Models, Agents, Capabilities, Connections, General. Approval-mode quick switcher added to the chat toolbar (strict / balanced / auto).
+- EN: Only Chinese (zh / zh-TW) and English locale packs are loaded now.
+- 中文：设置页信息架构重构为五组——模型、智能体、能力、连接、通用；输入框工具栏新增批准模式快捷切换（严格 / 平衡 / 自动）。
+- 中文：语言包仅加载中文（zh / zh-TW）与英文。
+
+### AI assistant / AI 助手
+
+- EN: Prompt caching for Anthropic and OpenAI/DeepSeek with a visible cache-hit indicator; full-text search across session history (title + body matches with snippets).
+- 中文：Anthropic 与 OpenAI/DeepSeek 的 prompt 缓存，并显示缓存命中指示；历史会话支持全文搜索（标题 + 正文匹配，附片段预览）。
+
+### Branding & release / 品牌与发布
+
+- EN: Renamed the product to Rubber Duck (assistant: Rubber). Plugin id `vault-operator` is unchanged, so existing installs keep working. The release pipeline now builds and publishes automatically when a semver tag is pushed.
+- 中文：产品更名为 Rubber Duck（橡皮鸭），AI 助手名为 Rubber（橡皮鸭）；插件 ID 保持 `vault-operator` 不变，不影响已有安装。推送语义化版本 tag 后自动打包发布。
+
 ## [3.6.1] - 2026-08-16
 
 ### Fixed

@@ -32,6 +32,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          # Full history + tags: the release-notes fallback walks the
+          # commit log between the previous tag and this one.
+          fetch-depth: 0
           # Do not leave the GITHUB_TOKEN in .git/config where an install
           # lifecycle script could read and exfiltrate it.
           persist-credentials: false
@@ -51,6 +54,47 @@ jobs:
             echo "::error::Version mismatch: release ${{ env.VERSION }} vs manifest $MANIFEST"
             exit 1
           fi
+
+      # Release body = the CHANGELOG.md section for this version; when the
+      # section is missing, fall back to the commit log since the previous
+      # tag so every release ships with a description.
+      - name: Generate release notes
+        run: |
+          VERSION="${{ env.VERSION }}"
+          # Matches both "## 1.2.3" and "## [1.2.3] - 2026-01-01" headers.
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 || index($0, "## " ver " ") == 1 || $0 == "## " ver { found = 1; next }
+            /^## / && found { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG.md section for $VERSION -- falling back to commit log."
+            PREV=$(git tag --sort=-v:refname | grep -v -- '-assets' | grep -v -x "$VERSION" | head -1 || true)
+            {
+              echo "## What's Changed"
+              if [ -n "$PREV" ]; then
+                git log --oneline "${PREV}..${VERSION}"
+              else
+                git log --oneline -20 "${VERSION}"
+              fi
+            } > release-notes.md
+          fi
+          cat >> release-notes.md <<'EOF'
+
+          ---
+
+          ### Install
+
+          From the Obsidian Community Plugins store:
+          1. Settings -> Community plugins -> Browse
+          2. Search for "Rubber Duck" and click Install, then Enable
+
+          Or install manually:
+          1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/vault-operator/`
+          2. Reload Obsidian
+          EOF
+          echo "----- release-notes.md -----"
+          cat release-notes.md
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -184,26 +228,9 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: ${{ env.VERSION }}
           make_latest: 'true'
-          body: |
-            ## Rubber Duck v${{ env.VERSION }}
-
-            Install from the Obsidian Community Plugins store:
-            1. Settings → Community plugins → Browse
-            2. Search for "Rubber Duck" and click Install, then Enable
-
-            Store page: https://obsidian.md/plugins?id=vault-operator
-
-            Or install manually:
-            1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/vault-operator/`
-            2. Reload Obsidian
-
-            ### Optional assets
-            Four optional downloads (semantic reranker, self-development source
-            bundle, office document support, PDF parser) are published as a
-            separate tag `${{ env.VERSION }}-assets` and installed on demand
-            from the plugin's Settings, never silently. The plugin works
-            without any of them; the affected tool reports "not installed"
-            until you click Install.
+          # Built by "Generate release notes": CHANGELOG section (bilingual)
+          # or commit-log fallback, plus the install instructions.
+          body_path: release-notes.md
           files: |
             release-assets/main.js
             release-assets/manifest.json
