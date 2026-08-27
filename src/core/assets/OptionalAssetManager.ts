@@ -340,7 +340,7 @@ export function buildRerankerSpec(pluginVersion: string, expectedSha256: string)
         description: 'Cross-encoder model that re-ranks semantic-search results by actual relevance. Runs locally on your machine, no API calls.',
         sizeMb: 12,
         expectedSha256,
-        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/ort-wasm-simd-threaded.wasm`,
+        downloadUrl: `https://github.com/KD-Leon/nova-vault/releases/download/${pluginVersion}-assets/ort-wasm-simd-threaded.wasm`,
     };
 }
 
@@ -352,7 +352,7 @@ export function buildSelfDevSourceSpec(pluginVersion: string, expectedSha256: st
         description: 'Bundle of the plugin\'s TypeScript source code. Enables the manage_source tool so the agent can read its own code to answer "how does feature X work?" questions and propose code patches.',
         sizeMb: 5,
         expectedSha256,
-        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/plugin-source.json`,
+        downloadUrl: `https://github.com/KD-Leon/nova-vault/releases/download/${pluginVersion}-assets/plugin-source.json`,
     };
 }
 
@@ -364,7 +364,7 @@ export function buildOfficeBundleSpec(pluginVersion: string, expectedSha256: str
         description: 'JavaScript bundle of exceljs, docx, and pptxgenjs. Powers the create_xlsx / create_docx / create_pptx tools and the DOCX/XLSX/PPTX document parsers. The plugin works without it; only the affected tools report "not installed".',
         sizeMb: 2,
         expectedSha256,
-        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/office-bundle.js`,
+        downloadUrl: `https://github.com/KD-Leon/nova-vault/releases/download/${pluginVersion}-assets/office-bundle.js`,
     };
 }
 
@@ -376,7 +376,7 @@ export function buildPdfjsBundleSpec(pluginVersion: string, expectedSha256: stri
         description: 'JavaScript bundle of pdfjs-dist plus its worker module. Powers PDF text extraction for the document-ingestion pipeline. The plugin works without it; PDF files are simply skipped during ingestion until installed.',
         sizeMb: 2,
         expectedSha256,
-        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/pdfjs-bundle.js`,
+        downloadUrl: `https://github.com/KD-Leon/nova-vault/releases/download/${pluginVersion}-assets/pdfjs-bundle.js`,
     };
 }
 
@@ -395,7 +395,7 @@ export function buildRerankerJsBundleSpec(pluginVersion: string, expectedSha256:
         description: 'JavaScript bundle of the transformers + onnxruntime-web libraries the semantic reranker needs. Paired with the "Reranker model (ONNX)" asset under Providers > Embeddings > Local reranking, which is downloaded separately. Without both, semantic search still works but skips the local rerank step.',
         sizeMb: 0.6,
         expectedSha256,
-        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/reranker-bundle.js`,
+        downloadUrl: `https://github.com/KD-Leon/nova-vault/releases/download/${pluginVersion}-assets/reranker-bundle.js`,
     };
 }
 
@@ -419,6 +419,6 @@ export function buildLocaleSpec(
         description: `Translated user-interface strings for ${languageLabel}. English is built in; this pack is only needed when Obsidian runs in ${languageLabel}. Loaded locally, no API calls.`,
         sizeMb: 1,
         expectedSha256,
-        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/${filename}`,
+        downloadUrl: `https://github.com/KD-Leon/nova-vault/releases/download/${pluginVersion}-assets/${filename}`,
     };
 }

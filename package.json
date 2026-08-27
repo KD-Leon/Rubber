@@ -31,7 +31,7 @@
     "mcp",
     "knowledge-management"
   ],
-  "author": "Leon-DK",
+  "author": "KD-Leon",
   "license": "Apache-2.0",
   "devDependencies": {
     "@codemirror/state": "6.5.0",
