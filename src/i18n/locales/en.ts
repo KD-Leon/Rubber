@@ -195,6 +195,11 @@ export const en = {
     'settings.embeddings.okfResetDone': 'Property names reset to OKF defaults.',
     'settings.embeddings.graphStats': 'Graph: {{edges}} edges, {{tags}} unique tags extracted',
     'settings.embeddings.graphNotInit': 'Graph: not initialized (enable semantic index first)',
+    // Advanced fold (progressive disclosure)
+    'settings.embeddings.advancedSummary': 'Advanced settings',
+    'settings.embeddings.advancedSummaryDesc': 'Everything in here has a working default: chunking, rebuild triggers, graph expansion, implicit connections and reranking. Change it only when you have a specific reason.',
+    'settings.embeddings.headingVaultVocabulary': 'Vault vocabulary (OKF)',
+    'settings.embeddings.sectionVaultVocabularyInfo': 'Frontmatter property names the extractor reads and writes. Keep the defaults unless your vault already uses different names.',
     // Implicit connections (FEATURE-1503)
     'settings.embeddings.headingImplicit': 'Implicit connections',
     'settings.embeddings.sectionImplicitInfo': 'Suggests wikilinks to related notes that you have not yet linked manually. Runs on the embedding vectors, so it picks up topical similarity, not just title matches. Surfaces as inline hints; nothing is changed in your notes automatically.',

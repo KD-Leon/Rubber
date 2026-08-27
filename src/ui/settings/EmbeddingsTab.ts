@@ -216,6 +216,64 @@ export class EmbeddingsTab {
         // is empty after the EPIC-26 migration. The setting field
         // `contextualModelKey` is preserved as a data field.
 
+        // Excluded folders stay in the main flow: which folders get indexed
+        // is a per-vault decision, not a tuning knob.
+        const excludedSetting = new Setting(containerEl)
+            .setName(t('settings.embeddings.excludedFolders'))
+            .setDesc(t('settings.embeddings.excludedFoldersDesc'));
+        addInfoButton(excludedSetting, t('settings.embeddings.infoExcludedTitle'), t('settings.embeddings.infoExcludedBody'));
+
+        const excludedFolders = this.plugin.settings.semanticExcludedFolders ?? [];
+
+        // Chip list as a separate row below the setting, full width
+        const excludedListEl = containerEl.createDiv('excluded-folder-list');
+        const renderExcludedList = () => {
+            excludedListEl.empty();
+            const current = this.plugin.settings.semanticExcludedFolders ?? [];
+            for (const folder of current) {
+                const chip = excludedListEl.createDiv('excluded-folder-chip');
+                chip.createSpan({ text: folder });
+                const removeBtn = chip.createSpan({ cls: 'excluded-folder-remove' });
+                setIcon(removeBtn, 'x');
+                removeBtn.addEventListener('click', () => {
+                    this.plugin.settings.semanticExcludedFolders =
+                        (this.plugin.settings.semanticExcludedFolders ?? []).filter((f) => f !== folder);
+                    getIdx()?.configure({ excludedFolders: this.plugin.settings.semanticExcludedFolders });
+                    void this.plugin.saveSettings();
+                    renderExcludedList();
+                });
+            }
+        };
+        renderExcludedList();
+
+        const folderInput = excludedSetting.controlEl.createEl('input', {
+            cls: 'excluded-folder-input',
+            attr: { type: 'text', placeholder: t('settings.embeddings.folderPlaceholder') },
+        });
+
+        // Folder suggest dropdown
+        const suggest = new FolderInputSuggest(this.app, folderInput, excludedFolders);
+        suggest.onPick = (folderPath: string) => { void (async () => {
+            if (!this.plugin.settings.semanticExcludedFolders) this.plugin.settings.semanticExcludedFolders = [];
+            if (!this.plugin.settings.semanticExcludedFolders.includes(folderPath)) {
+                this.plugin.settings.semanticExcludedFolders.push(folderPath);
+                getIdx()?.configure({ excludedFolders: this.plugin.settings.semanticExcludedFolders });
+                await this.plugin.saveSettings();
+                renderExcludedList();
+            }
+            folderInput.value = '';
+        })(); };
+
+        folderInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const val = folderInput.value.trim();
+                if (val) {
+                    void suggest.onPick(val);
+                }
+            }
+        });
+
         const buildSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.buildIndexName'))
             .setDesc(t('settings.embeddings.buildIndexDesc'));
@@ -421,10 +479,23 @@ export class EmbeddingsTab {
                 });
             });
 
-        // ── Index configuration ───────────────────────────────────────────────
-        addSectionHeading(containerEl, t('settings.embeddings.headingConfig'), { body: t('settings.embeddings.sectionConfigInfo') });
+        // ── Advanced (collapsed by default) ───────────────────────────────────
+        // Progressive disclosure: the main flow above is all a normal setup
+        // needs (model, enable, build, scope). Everything below is tuning
+        // with sane defaults, so it folds away instead of confronting every
+        // user with 20+ knobs. Pattern follows the permissions catalog
+        // (FEAT-30-07).
+        const advanced = containerEl.createEl('details', { cls: 'agent-embeddings-advanced' });
+        advanced.createEl('summary', { text: t('settings.embeddings.advancedSummary') });
+        advanced.createDiv({
+            cls: 'setting-item-description',
+            text: t('settings.embeddings.advancedSummaryDesc'),
+        });
 
-        const batchSetting = new Setting(containerEl)
+        // ── Index configuration ───────────────────────────────────────────────
+        addSectionHeading(advanced, t('settings.embeddings.headingConfig'), { body: t('settings.embeddings.sectionConfigInfo') });
+
+        const batchSetting = new Setting(advanced)
             .setName(t('settings.embeddings.checkpointInterval'))
             .setDesc(t('settings.embeddings.checkpointIntervalDesc'));
         addInfoButton(batchSetting, t('settings.embeddings.infoCheckpointTitle'), t('settings.embeddings.infoCheckpointBody'));
@@ -438,7 +509,7 @@ export class EmbeddingsTab {
                 }),
         );
 
-        const chunkSizeSetting = new Setting(containerEl)
+        const chunkSizeSetting = new Setting(advanced)
             .setName(t('settings.embeddings.chunkSize'))
             .setDesc(t('settings.embeddings.chunkSizeDesc'));
         chunkSizeSetting.addDropdown((d) =>
@@ -458,7 +529,7 @@ export class EmbeddingsTab {
                 }),
         );
 
-        const hydeSetting = new Setting(containerEl)
+        const hydeSetting = new Setting(advanced)
             .setName(t('settings.embeddings.hyde'))
             .setDesc(t('settings.embeddings.hydeDesc'));
         addInfoButton(hydeSetting, t('settings.embeddings.infoHydeTitle'), t('settings.embeddings.infoHydeBody'));
@@ -469,7 +540,7 @@ export class EmbeddingsTab {
             }),
         );
 
-        const autoIndexOnChangeSetting = new Setting(containerEl)
+        const autoIndexOnChangeSetting = new Setting(advanced)
             .setName(t('settings.embeddings.autoIndexOnChange'))
             .setDesc(t('settings.embeddings.autoIndexOnChangeDesc'));
         autoIndexOnChangeSetting.descEl.createDiv({
@@ -491,7 +562,7 @@ export class EmbeddingsTab {
         // Ollama embeddings to the native /api/embed endpoint. Only shown when
         // the active embedding model is served by Ollama.
         if (activeEmbModel?.provider === 'ollama') {
-            const keepAliveSetting = new Setting(containerEl)
+            const keepAliveSetting = new Setting(advanced)
                 .setName(t('settings.embeddings.ollamaKeepAlive'))
                 .setDesc(t('settings.embeddings.ollamaKeepAliveDesc'));
             addInfoButton(keepAliveSetting, t('settings.embeddings.infoKeepAliveTitle'), t('settings.embeddings.infoKeepAliveBody'));
@@ -509,7 +580,7 @@ export class EmbeddingsTab {
             );
         }
 
-        const autoIndexSetting = new Setting(containerEl)
+        const autoIndexSetting = new Setting(advanced)
             .setName(t('settings.embeddings.autoIndexStrategy'))
             .setDesc(t('settings.embeddings.autoIndexStrategyDesc'));
         addInfoButton(autoIndexSetting, t('settings.embeddings.infoAutoStrategyTitle'), t('settings.embeddings.infoAutoStrategyBody'));
@@ -526,68 +597,12 @@ export class EmbeddingsTab {
                 }),
         );
 
-        const excludedSetting = new Setting(containerEl)
-            .setName(t('settings.embeddings.excludedFolders'))
-            .setDesc(t('settings.embeddings.excludedFoldersDesc'));
-        addInfoButton(excludedSetting, t('settings.embeddings.infoExcludedTitle'), t('settings.embeddings.infoExcludedBody'));
-
-        const excludedFolders = this.plugin.settings.semanticExcludedFolders ?? [];
-
-        // Chip list as a separate row below the setting, full width
-        const excludedListEl = containerEl.createDiv('excluded-folder-list');
-        const renderExcludedList = () => {
-            excludedListEl.empty();
-            const current = this.plugin.settings.semanticExcludedFolders ?? [];
-            for (const folder of current) {
-                const chip = excludedListEl.createDiv('excluded-folder-chip');
-                chip.createSpan({ text: folder });
-                const removeBtn = chip.createSpan({ cls: 'excluded-folder-remove' });
-                setIcon(removeBtn, 'x');
-                removeBtn.addEventListener('click', () => {
-                    this.plugin.settings.semanticExcludedFolders =
-                        (this.plugin.settings.semanticExcludedFolders ?? []).filter((f) => f !== folder);
-                    getIdx()?.configure({ excludedFolders: this.plugin.settings.semanticExcludedFolders });
-                    void this.plugin.saveSettings();
-                    renderExcludedList();
-                });
-            }
-        };
-        renderExcludedList();
-
-        const folderInput = excludedSetting.controlEl.createEl('input', {
-            cls: 'excluded-folder-input',
-            attr: { type: 'text', placeholder: t('settings.embeddings.folderPlaceholder') },
-        });
-
-        // Folder suggest dropdown
-        const suggest = new FolderInputSuggest(this.app, folderInput, excludedFolders);
-        suggest.onPick = (folderPath: string) => { void (async () => {
-            if (!this.plugin.settings.semanticExcludedFolders) this.plugin.settings.semanticExcludedFolders = [];
-            if (!this.plugin.settings.semanticExcludedFolders.includes(folderPath)) {
-                this.plugin.settings.semanticExcludedFolders.push(folderPath);
-                getIdx()?.configure({ excludedFolders: this.plugin.settings.semanticExcludedFolders });
-                await this.plugin.saveSettings();
-                renderExcludedList();
-            }
-            folderInput.value = '';
-        })(); };
-
-        folderInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const val = folderInput.value.trim();
-                if (val) {
-                    void suggest.onPick(val);
-                }
-            }
-        });
-
         // Storage location removed from UI (ADR-050: knowledge.db is always global)
 
         // ── Graph Expansion (FEATURE-1502) ─────────────────────────────────
-        addSectionHeading(containerEl, t('settings.embeddings.headingGraph'), { body: t('settings.embeddings.sectionGraphInfo') });
+        addSectionHeading(advanced, t('settings.embeddings.headingGraph'), { body: t('settings.embeddings.sectionGraphInfo') });
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.graphExpansion'))
             .setDesc(t('settings.embeddings.graphExpansionDesc'))
             .addToggle((toggle) =>
@@ -597,7 +612,7 @@ export class EmbeddingsTab {
                 }),
             );
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.expansionHops'))
             .setDesc(t('settings.embeddings.expansionHopsDesc'))
             .addDropdown((d) => {
@@ -611,7 +626,23 @@ export class EmbeddingsTab {
                 });
             });
 
-        new Setting(containerEl)
+        // Graph statistics
+        const graphStats = advanced.createDiv('agent-settings-desc');
+        if (this.plugin.graphStore) {
+            const edges = this.plugin.graphStore.getEdgeCount();
+            const tags = this.plugin.graphStore.getTagCount();
+            graphStats.setText(t('settings.embeddings.graphStats', { edges, tags }));
+        } else {
+            graphStats.setText(t('settings.embeddings.graphNotInit'));
+        }
+
+        // ── Vault vocabulary (OKF) ──────────────────────────────────────────
+        // Property names are vault schema following OKF (FIX-42-01-01), not
+        // UI language. Folded away because the defaults only need touching
+        // when a vault already uses different names.
+        addSectionHeading(advanced, t('settings.embeddings.headingVaultVocabulary'), { body: t('settings.embeddings.sectionVaultVocabularyInfo') });
+
+        new Setting(advanced)
             .setName(t('settings.embeddings.mocProperties'))
             .setDesc(t('settings.embeddings.mocPropertiesDesc'))
             .addText((text) => {
@@ -626,9 +657,7 @@ export class EmbeddingsTab {
                 })(); });
             });
 
-        // Knowledge Properties (FEATURE-1903). Property names are vault
-        // schema following OKF (FIX-42-01-01), not UI language.
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.categoryProperty'))
             .setDesc(t('settings.embeddings.categoryPropertyDesc'))
             .addText((text) => {
@@ -643,7 +672,7 @@ export class EmbeddingsTab {
         // FIX-19-01-01: backlinks property the Vault Health repair
         // writes the reverse-edge wikilinks into. Must match the
         // property name already used in user notes.
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.backlinksProperty'))
             .setDesc(t('settings.embeddings.backlinksPropertyDesc'))
             .addText((text) => {
@@ -655,7 +684,7 @@ export class EmbeddingsTab {
                 })(); });
             });
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.summaryProperty'))
             .setDesc(t('settings.embeddings.summaryPropertyDesc'))
             .addText((text) => {
@@ -667,7 +696,7 @@ export class EmbeddingsTab {
                 })(); });
             });
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.sourceNaming'))
             .setDesc(t('settings.embeddings.sourceNamingDesc'))
             .addText((text) => {
@@ -682,7 +711,7 @@ export class EmbeddingsTab {
         // FIX-42-01-01: one-click reset for vaults migrated to the OKF
         // vocabulary. Persisted values are never auto-migrated because
         // existing notes match whatever names the user configured.
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.okfReset'))
             .setDesc(t('settings.embeddings.okfResetDesc'))
             .addButton((btn) =>
@@ -698,20 +727,10 @@ export class EmbeddingsTab {
                 })(); }),
             );
 
-        // Graph statistics
-        const graphStats = containerEl.createDiv('agent-settings-desc');
-        if (this.plugin.graphStore) {
-            const edges = this.plugin.graphStore.getEdgeCount();
-            const tags = this.plugin.graphStore.getTagCount();
-            graphStats.setText(t('settings.embeddings.graphStats', { edges, tags }));
-        } else {
-            graphStats.setText(t('settings.embeddings.graphNotInit'));
-        }
-
         // ── Implicit Connections (FEATURE-1503) ──────────────────────────────
-        addSectionHeading(containerEl, t('settings.embeddings.headingImplicit'), { body: t('settings.embeddings.sectionImplicitInfo') });
+        addSectionHeading(advanced, t('settings.embeddings.headingImplicit'), { body: t('settings.embeddings.sectionImplicitInfo') });
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.implicitConnections'))
             .setDesc(t('settings.embeddings.implicitConnectionsDesc'))
             .addToggle((toggle) =>
@@ -721,7 +740,7 @@ export class EmbeddingsTab {
                 }),
             );
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.similarityThreshold'))
             .setDesc(t('settings.embeddings.similarityThresholdDesc'))
             .addSlider((s) =>
@@ -733,7 +752,7 @@ export class EmbeddingsTab {
                     }),
             );
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.suggestionBanner'))
             .setDesc(t('settings.embeddings.suggestionBannerDesc'))
             .addToggle((toggle) =>
@@ -743,7 +762,7 @@ export class EmbeddingsTab {
                 }),
             );
 
-        const implicitStats = containerEl.createDiv('agent-settings-desc');
+        const implicitStats = advanced.createDiv('agent-settings-desc');
         const implicitCount = this.plugin.implicitConnectionService?.getCount() ?? 0;
         if (implicitCount > 0) {
             implicitStats.setText(t('settings.embeddings.implicitStats', { count: implicitCount }));
@@ -754,9 +773,9 @@ export class EmbeddingsTab {
         }
 
         // ── Local Reranking (FEATURE-1504) ───────────────────────────────────
-        addSectionHeading(containerEl, t('settings.embeddings.headingReranking'), { body: t('settings.embeddings.sectionRerankingInfo') });
+        addSectionHeading(advanced, t('settings.embeddings.headingReranking'), { body: t('settings.embeddings.sectionRerankingInfo') });
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.localReranking'))
             .setDesc(t('settings.embeddings.localRerankingDesc'))
             .addToggle((toggle) =>
@@ -772,9 +791,9 @@ export class EmbeddingsTab {
             );
 
         // Reranker model asset (Phase 2: optional download instead of inline)
-        void this.renderRerankerAssetBlock(containerEl);
+        void this.renderRerankerAssetBlock(advanced);
 
-        new Setting(containerEl)
+        new Setting(advanced)
             .setName(t('settings.embeddings.rerankCandidates'))
             .setDesc(t('settings.embeddings.rerankCandidatesDesc'))
             .addSlider((s) =>

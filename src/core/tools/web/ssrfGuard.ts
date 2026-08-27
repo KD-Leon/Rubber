@@ -108,6 +108,40 @@ export function isPrivateIP(ip: string): boolean {
 }
 
 /**
+ * Proxy fake-ip placeholder ranges. Clash/mihomo (and Surge) in fake-ip DNS
+ * mode answer every A/AAAA query with a synthetic address from these ranges --
+ * 198.18.0.0/15 (RFC 2544 benchmarking) for IPv4 and fdfe:dcba:9876::/48 for
+ * IPv6 -- and resolve the real target inside the proxy tunnel. The synthetic
+ * address is NOT an intranet host: without a proxy it is unroutable and the
+ * connection dead-ends; with a proxy the egress is the user's own tunnel
+ * policy, same as any browser request. Blocking them (the fd.. range trips
+ * the ULA rule) breaks web_fetch for every fake-ip user, so the guard
+ * exempts exactly these two ranges. Genuine ULA (any other fd../fc.. prefix)
+ * stays blocked.
+ */
+export function isProxyPlaceholderIp(ip: string): boolean {
+    const bare = normalizeHostForIpCheck(ip);
+
+    if (net.isIPv4(bare)) {
+        const parts = bare.split('.');
+        if (parts.length !== 4 || !parts.every((p) => IPV4_OCTET_RE.test(p))) return false;
+        const [a, b] = parts.map((p) => parseInt(p, 10));
+        return a === 198 && (b === 18 || b === 19); // 198.18.0.0/15
+    }
+    if (net.isIPv6(bare)) {
+        // The /48's leading hextons are non-zero, so they always appear
+        // verbatim at the start of the compressed text form.
+        return bare.startsWith('fdfe:dcba:9876:');
+    }
+    return false;
+}
+
+/** The address the guard rejects: a private range that is not a proxy placeholder. */
+function isBlockedIp(ip: string): boolean {
+    return isPrivateIP(ip) && !isProxyPlaceholderIp(ip);
+}
+
+/**
  * Hostname suffix denylist: split-horizon corporate networks and common
  * internal-only TLDs that should never be reachable from an agent fetch.
  * Matched case-insensitively against the trimmed bracket-stripped hostname.
@@ -137,6 +171,7 @@ export type GuardResult = { ok: true } | { ok: false; reason: string };
  * Phase 1: scheme allowlist, bracket-stripped hostname checked against IP private ranges
  *          and the internal-suffix denylist.
  * Phase 2: OS-resolver lookup for non-IP hostnames; any private resolved IP rejects.
+ *          Proxy fake-ip placeholders (isProxyPlaceholderIp) are exempt -- see there.
  *          Lookup failures for non-IP hostnames fail closed (return reason), since a
  *          silently-swallowed split-horizon NXDOMAIN previously let public-DNS misses
  *          fall through to the network stack that DID resolve the internal name.
@@ -160,7 +195,7 @@ export async function guardUrl(url: string): Promise<GuardResult> {
             reason: 'Access to private/internal network addresses is not allowed',
         };
     }
-    if (isPrivateIP(bareHost)) {
+    if (isBlockedIp(bareHost)) {
         return {
             ok: false,
             reason: 'Access to private/internal network addresses is not allowed',
@@ -184,7 +219,7 @@ export async function guardUrl(url: string): Promise<GuardResult> {
             };
         }
         for (const addr of addrs) {
-            if (isPrivateIP(addr.address)) {
+            if (isBlockedIp(addr.address)) {
                 return {
                     ok: false,
                     reason: `Hostname "${bareHost}" resolves to private address ${addr.address}; access denied (SSRF protection)`,
@@ -322,7 +357,7 @@ function requestOnce(
                 // that the connection is established. Catches TOCTOU between guard and
                 // connect even when the OS resolver agreed with our pre-check.
                 const remote = res.socket && (res.socket as { remoteAddress?: string }).remoteAddress;
-                if (remote && isPrivateIP(remote)) {
+                if (remote && isBlockedIp(remote)) {
                     req.destroy();
                     reject(
                         new Error(

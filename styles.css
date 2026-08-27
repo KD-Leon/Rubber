@@ -4707,39 +4707,54 @@ h4.agent-settings-section {
 .vault-op-status.is-error { color: var(--vo-status-err); }
 .vault-op-status.is-pending { color: var(--text-muted); }
 
-/* Compact Obsidian Setting items within the settings surface */
+/* Flat setting rows: flat surfaces, no dividers, no card
+ * backgrounds (also overrides themes that card-ify .setting-item).
+ * Separation comes from whitespace and a soft rounded hover only.
+ * The negative margin keeps row text flush with headings and tables
+ * while the horizontal padding gives the hover highlight air. */
 .agent-settings-content .setting-item {
-    padding: 8px 0;
-    border-top: 1px solid var(--background-modifier-border);
-    border-radius: 0;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    margin: 0 -8px;
+    padding: 10px 8px;
+    transition: background-color 150ms ease;
 }
 
-.agent-settings-content .setting-item:first-of-type,
-.agent-settings-content .agent-settings-section + .setting-item,
-.agent-settings-content .agent-settings-desc + .setting-item,
-.agent-settings-content .agent-semantic-status + .setting-item {
-    border-top: none;
+@media (hover: hover) {
+    .agent-settings-content .setting-item:hover {
+        background: var(--background-modifier-hover);
+    }
 }
 
-/* Section headings — reset any inherited h3 padding/margin from Obsidian */
+/* Section headings — Notion group label: small, muted, no underline;
+   the whitespace above the heading does the grouping. Also resets any
+   inherited h3 padding/margin from Obsidian. */
 .agent-settings-content .agent-settings-section {
     padding-left: 0;
     padding-right: 0;
     margin-left: 0;
     margin-right: 0;
+    border-bottom: none;
+    margin-top: 26px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
 }
 
+.agent-settings-content .agent-settings-section:first-child { margin-top: 4px; }
+
 .agent-settings-content .setting-item-name {
-    font-size: 13.5px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--text-normal);
 }
 
 .agent-settings-content .setting-item-description {
-    font-size: 12px;
+    font-size: 12.5px;
     color: var(--text-muted);
-    line-height: 1.4;
-    margin-top: 2px;
+    line-height: 1.55;
+    margin-top: 3px;
 }
 
 /* FEAT-04-10 design pass: compact text buttons across the whole settings
@@ -4768,6 +4783,24 @@ h4.agent-settings-section {
     color: var(--text-muted);
 }
 .agent-permissions-catalog[open] > summary {
+    color: var(--text-normal);
+    margin-bottom: 6px;
+}
+
+/* Progressive disclosure: einklappbarer Erweitert-Block im Embeddings-Tab */
+.agent-embeddings-advanced {
+    margin: 8px 0 16px;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+.agent-embeddings-advanced > summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+.agent-embeddings-advanced[open] > summary {
     color: var(--text-normal);
     margin-bottom: 6px;
 }
