@@ -314,7 +314,7 @@ export class McpTab {
                 troubleshoot.appendText(t('settings.mcp.troubleshootHint'));
                 troubleshoot.createEl('a', {
                     text: t('settings.mcp.troubleshootLink'),
-                    href: 'https://pssah4.github.io/vault-operator/guides/connectors',
+                    href: 'https://github.com/KD-Leon/nova-vault/blob/main/docs/guides/connectors.md',
                 });
 
                 // Redeploy + Reset

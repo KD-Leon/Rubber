@@ -33,7 +33,7 @@ export { ContentEditorModal } from './settings/ContentEditorModal';
 
 export type TabId = 'providers' | 'agent-behaviour' | 'customize' | 'advanced' | 'help';
 
-const HELP_URL = 'https://pssah4.github.io/vault-operator/';
+const HELP_URL = 'https://github.com/KD-Leon/nova-vault';
 
 // Review-bot recommendation (deferred by design): this tab does not implement
 // getSettingDefinitions(), so its settings do not surface in Obsidian's 1.13+
