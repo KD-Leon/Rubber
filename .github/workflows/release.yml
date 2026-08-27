@@ -1,12 +1,22 @@
 name: Release
 
+# Two ways to release:
+#   1. Push a semver tag (e.g. 0.0.2) -- automatic.
+#   2. Run manually from the Actions tab and enter the version number
+#      (must match manifest.json).
 on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
         description: 'Version number (e.g. 1.0.0 — must match manifest.json)'
-        required: true
-        default: '1.0.0'
+        required: false
+        default: ''
+
+env:
+  VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
 
 jobs:
   release:
@@ -17,6 +27,21 @@ jobs:
       attestations: write
 
     steps:
+      # Refuse to publish when the tag/input does not match the manifest.
+      - name: Verify version matches manifest
+        run: |
+          MANIFEST=$(jq -r .version manifest.json)
+          echo "release version: ${{ env.VERSION }}"
+          echo "manifest version: $MANIFEST"
+          if [ -z "${{ env.VERSION }}" ]; then
+            echo "::error::No version given. Trigger by pushing a semver tag or set the version input."
+            exit 1
+          fi
+          if [ "$MANIFEST" != "${{ env.VERSION }}" ]; then
+            echo "::error::Version mismatch: release ${{ env.VERSION }} vs manifest $MANIFEST"
+            exit 1
+          fi
+
       # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit
       # SHAs (mutable tags are not an immutable reference); Dependabot bumps them.
       - name: Checkout
@@ -122,11 +147,11 @@ jobs:
       - name: Create GitHub Release (optional assets)
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ inputs.version }}-assets
-          name: ${{ inputs.version }} -- Optional assets
+          tag_name: ${{ env.VERSION }}-assets
+          name: ${{ env.VERSION }} -- Optional assets
           make_latest: 'false'
           body: |
-            Optional assets for Vault Operator v${{ inputs.version }}.
+            Optional assets for Rubber Duck v${{ env.VERSION }}.
 
             These files are downloaded on demand by the plugin only after
             an explicit user click in Settings:
@@ -155,15 +180,15 @@ jobs:
       - name: Create GitHub Release (plugin)
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: ${{ inputs.version }}
+          tag_name: ${{ env.VERSION }}
+          name: ${{ env.VERSION }}
           make_latest: 'true'
           body: |
-            ## Vault Operator v${{ inputs.version }}
+            ## Rubber Duck v${{ env.VERSION }}
 
             Install from the Obsidian Community Plugins store:
             1. Settings → Community plugins → Browse
-            2. Search for "Vault Operator" and click Install, then Enable
+            2. Search for "Rubber Duck" and click Install, then Enable
 
             Store page: https://obsidian.md/plugins?id=vault-operator
 
@@ -174,7 +199,7 @@ jobs:
             ### Optional assets
             Four optional downloads (semantic reranker, self-development source
             bundle, office document support, PDF parser) are published as a
-            separate tag `${{ inputs.version }}-assets` and installed on demand
+            separate tag `${{ env.VERSION }}-assets` and installed on demand
             from the plugin's Settings, never silently. The plugin works
             without any of them; the affected tool reports "not installed"
             until you click Install.
