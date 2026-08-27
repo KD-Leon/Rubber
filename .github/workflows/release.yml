@@ -90,7 +90,7 @@ jobs:
           2. Search for "Rubber Duck" and click Install, then Enable
 
           Or install manually:
-          1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/vault-operator/`
+          1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/rubber-duck/`
           2. Reload Obsidian
           EOF
           echo "----- release-notes.md -----"

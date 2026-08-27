@@ -98,15 +98,15 @@
 ### 📦 安装指南
 
 #### 方式一：手动安装（推荐）
-1. 前往 [Releases](https://github.com/Deklan-Deng/nova-vault/releases) 页面下载最新的 `main.js`、`manifest.json`、`styles.css`；
+1. 前往 [Releases](https://github.com/KD-Leon/Rubber/releases) 页面下载最新的 `main.js`、`manifest.json`、`styles.css`；
 2. 打开你的 Obsidian 知识库目录，进入 `.obsidian/plugins/`；
-3. 创建名为 `vault-operator` 的文件夹，并将下载的 3 个文件放入其中；
+3. 创建名为 `rubber-duck` 的文件夹，并将下载的 3 个文件放入其中；
 4. 打开 Obsidian，进入 **设置 -> 第三方插件**，启用 **Rubber Duck (橡皮鸭)** 即可开始使用。
 
 #### 方式二：本地开发与构建
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/Deklan-Deng/nova-vault.git
+git clone https://github.com/KD-Leon/Rubber.git
 cd nova-vault
 
 # 2. 安装依赖

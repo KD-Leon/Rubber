@@ -9,6 +9,13 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-08-27
+
+### Plugin id change / 插件 ID 变更
+
+- EN: The plugin id changed from `vault-operator` to `rubber-duck`. The old id already belongs to another published Obsidian community plugin, so a listing under it would have been rejected. If you installed an earlier build manually, delete the old `vault-operator` folder inside `.obsidian/plugins/` and install fresh — your settings live in `.vault-operator/` inside the vault and are kept.
+- 中文：插件 ID 从 `vault-operator` 更名为 `rubber-duck`：原 ID 已属于另一款已上架的 Obsidian 社区插件，沿用将无法上架。如果手动安装过旧版，请删除 `.obsidian/plugins/` 里的 `vault-operator` 旧文件夹后重新安装——设置保存在库内的 `.vault-operator/` 目录中，不会丢失。
+
 ## [0.0.2] - 2026-08-27
 
 ### Cloud storage (S3-compatible) / 云存储（S3 兼容）
