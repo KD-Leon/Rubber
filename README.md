@@ -1,6 +1,6 @@
 <p align="center">
   <img src="docs/public/assets/duck.svg" width="120" alt="Rubber Duck mascot">
-  <h1 align="center">Rubber Duck 橡皮鸭</h1>
+  <h1 align="center">Rubber Duck</h1>
   <p align="center">
     <strong>极简美学设计 · 深度知识库 RAG 与自主 Multi-Agent 智能体</strong>
   </p>
@@ -10,7 +10,7 @@
   <p align="center">
     <a href="#-quick-start"><img src="https://img.shields.io/badge/Obsidian-Plugin-blue?logo=obsidian" alt="Obsidian Plugin"></a>
     <a href="#-license"><img src="https://img.shields.io/badge/License-Apache%202.0-green.svg" alt="License"></a>
-    <img src="https://img.shields.io/badge/Version-3.7.0-purple.svg" alt="Version">
+    <img src="https://img.shields.io/badge/Version-0.0.4-purple.svg" alt="Version">
     <img src="https://img.shields.io/badge/Local--First-Privacy%20Guaranteed-teal.svg" alt="Local First">
   </p>
 </p>

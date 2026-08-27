@@ -314,7 +314,7 @@ export class McpTab {
                 troubleshoot.appendText(t('settings.mcp.troubleshootHint'));
                 troubleshoot.createEl('a', {
                     text: t('settings.mcp.troubleshootLink'),
-                    href: 'https://github.com/KD-Leon/nova-vault/blob/main/docs/guides/connectors.md',
+                    href: 'https://github.com/KD-Leon/Rubber/blob/main/docs/guides/connectors.md',
                 });
 
                 // Redeploy + Reset

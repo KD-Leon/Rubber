@@ -9,6 +9,17 @@ All notable changes to Vault Operator are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-08-27
+
+### Fixes / 修复
+
+- EN: Plugin download/asset URLs still pointed at the old `KD-Leon/nova-vault` repository (optional assets, help links, connector docs, BRAT hint) — all now point to `KD-Leon/Rubber`.
+- EN: README heading matches the manifest name exactly ("Rubber Duck"), as required by the community review.
+- EN: `versions.json` no longer carries the upstream fork's 0.1.0–3.7.0 history; it now lists only this fork's releases.
+- 中文：插件内的下载与帮助链接仍指向旧仓库 `KD-Leon/nova-vault`（可选资产、帮助链接、连接器文档、BRAT 提示）——已全部改为 `KD-Leon/Rubber`。
+- 中文：README 标题与 manifest 名称严格一致（“Rubber Duck”），满足社区审核要求。
+- 中文：`versions.json` 清除了上游 fork 的 0.1.0–3.7.0 历史版本，仅保留本 fork 的发布记录。
+
 ## [0.0.3] - 2026-08-27
 
 ### Plugin id change / 插件 ID 变更
